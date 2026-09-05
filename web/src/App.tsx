@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BusMap, type FeedState } from "./BusMap.js";
+import { BusMap, type FeedState, type SelectedBus } from "./BusMap.js";
 
 const ATTRIBUTION =
   "Some of the data used in this product or service is provided by permission of " +
@@ -9,10 +9,13 @@ const ATTRIBUTION =
 export function App() {
   const [feed, setFeed] = useState<FeedState>({ kind: "connecting" });
   const [showAbout, setShowAbout] = useState(false);
+  const [bus, setBus] = useState<SelectedBus | null>(null);
 
   return (
     <div className="app">
-      <BusMap onState={setFeed} />
+      <BusMap onState={setFeed} onSelect={setBus} />
+
+      {bus && <BusCard bus={bus} onClose={() => setBus(null)} />}
 
       <div className="statusbar">
         <StatusPill feed={feed} />
@@ -26,6 +29,44 @@ export function App() {
       </div>
 
       {showAbout && <AboutSheet onClose={() => setShowAbout(false)} />}
+    </div>
+  );
+}
+
+function BusCard({ bus, onClose }: { bus: SelectedBus; onClose: () => void }) {
+  return (
+    <div className="buscard" role="dialog" aria-label={`Route ${bus.routeLabel}`}>
+      <div className="buscard-head">
+        <span className="route-badge" style={{ background: bus.color }}>
+          {bus.routeLabel}
+        </span>
+        <div className="buscard-title">
+          <strong>{bus.headsign || bus.routeName || "In service"}</strong>
+          {bus.routeName && bus.headsign && <span className="sub">{bus.routeName}</span>}
+        </div>
+        <button className="buscard-close" onClick={onClose} aria-label="Close">
+          &times;
+        </button>
+      </div>
+
+      <dl className="buscard-rows">
+        <div>
+          <dt>Next stop</dt>
+          <dd>
+            {bus.nextStopName ?? "Unknown"}
+            {bus.nextStopAccessible === 1 && (
+              <span className="wheelchair" title="Wheelchair accessible">
+                {" "}
+                &#9855;
+              </span>
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>Stop number</dt>
+          <dd>{bus.stopSequence || "—"}</dd>
+        </div>
+      </dl>
     </div>
   );
 }

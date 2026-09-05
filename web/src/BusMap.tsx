@@ -17,7 +17,24 @@ export type FeedState =
   | { kind: "waiting"; reason: string }
   | { kind: "error"; message: string };
 
-export function BusMap({ onState }: { onState: (state: FeedState) => void }) {
+export interface SelectedBus {
+  id: string;
+  routeLabel: string;
+  routeName: string;
+  headsign: string;
+  nextStopName: string | null;
+  nextStopAccessible: number;
+  stopSequence: number;
+  color: string;
+}
+
+export function BusMap({
+  onState,
+  onSelect,
+}: {
+  onState: (state: FeedState) => void;
+  onSelect: (bus: SelectedBus | null) => void;
+}) {
   const container = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
 
@@ -28,6 +45,11 @@ export function BusMap({ onState }: { onState: (state: FeedState) => void }) {
   const tripShapes = useRef(new Map<string, string>());
   const onStateRef = useRef(onState);
   onStateRef.current = onState;
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+  /** Latest wire record per bus, for the detail sheet. */
+  const wireById = useRef(new Map<string, { r: string; d?: string; p: string; s: number }>());
+  const selectedId = useRef<string | null>(null);
 
   useEffect(() => {
     if (!container.current) return;
@@ -105,6 +127,21 @@ export function BusMap({ onState }: { onState: (state: FeedState) => void }) {
         },
       });
 
+      // Drawn beneath the dots so the ring reads as a halo, not a badge.
+      map.addLayer({
+        id: "bus-selected",
+        type: "circle",
+        source: "buses",
+        filter: ["==", ["get", "id"], "__none__"],
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 8, 15, 18],
+          "circle-color": "#0b6ea8",
+          "circle-opacity": 0.25,
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#0b6ea8",
+        },
+      }, "bus-dots");
+
       map.addLayer({
         id: "bus-labels",
         type: "symbol",
@@ -124,8 +161,58 @@ export function BusMap({ onState }: { onState: (state: FeedState) => void }) {
         },
       });
 
+      // A 4px dot is a hard target on a phone, so query a box around the tap
+      // rather than the exact pixel.
+      map.on("click", (event) => {
+        const box: [maplibregl.PointLike, maplibregl.PointLike] = [
+          [event.point.x - 12, event.point.y - 12],
+          [event.point.x + 12, event.point.y + 12],
+        ];
+        const hits = map.queryRenderedFeatures(box, { layers: ["bus-dots"] });
+        select(hits[0]?.properties?.["id"] as string | undefined);
+      });
+
+      map.getCanvas().style.cursor = "";
+      map.on("mouseenter", "bus-dots", () => {
+        map.getCanvas().style.cursor = "pointer";
+      });
+      map.on("mouseleave", "bus-dots", () => {
+        map.getCanvas().style.cursor = "";
+      });
+
       void start();
     });
+
+    function select(id: string | undefined): void {
+      const gtfs = gtfsRef.current;
+      selectedId.current = id ?? null;
+      if (map.getLayer("bus-selected")) {
+        map.setFilter("bus-selected", ["==", ["get", "id"], id ?? "__none__"]);
+      }
+
+      if (!id || !gtfs) {
+        onSelectRef.current(null);
+        return;
+      }
+
+      const wire = wireById.current.get(id);
+      if (!wire) {
+        onSelectRef.current(null);
+        return;
+      }
+
+      const stop = wire.p ? gtfs.stop(wire.p) : null;
+      onSelectRef.current({
+        id,
+        routeLabel: gtfs.routeLabel(wire.r),
+        routeName: gtfs.routeName(wire.r),
+        headsign: wire.d ?? "",
+        nextStopName: stop?.n ?? null,
+        nextStopAccessible: stop?.w ?? 0,
+        stopSequence: wire.s,
+        color: gtfs.routeColor(wire.r),
+      });
+    }
 
     async function start(): Promise<void> {
       const gtfs = new GtfsData();
@@ -207,6 +294,7 @@ export function BusMap({ onState }: { onState: (state: FeedState) => void }) {
       for (const v of snapshot.vehicles) {
         if (v.r) routes.add(v.r);
         if (v.h) tripShapes.current.set(v.t, v.h);
+        wireById.current.set(v.i, { r: v.r, d: v.d, p: v.p, s: v.s });
       }
       for (const routeId of routes) void gtfs.ensureRoute(routeId);
 

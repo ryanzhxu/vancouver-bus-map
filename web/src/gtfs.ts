@@ -43,6 +43,7 @@ export class GtfsData {
   private version: string | null = null;
   routes = new Map<string, RouteInfo>();
   stops: StopInfo[] = [];
+  private stopById = new Map<string, StopInfo>();
 
   /** shapeId -> track, filled in as routes are requested. */
   private tracks = new Map<string, Track>();
@@ -60,6 +61,7 @@ export class GtfsData {
 
     this.routes = new Map(Object.entries(routes));
     this.stops = stops;
+    this.stopById = new Map(stops.map((stop) => [stop.i, stop]));
     return manifest;
   }
 
@@ -93,6 +95,20 @@ export class GtfsData {
 
     this.routeLoads.set(routeId, load);
     return load;
+  }
+
+  stop(stopId: string): StopInfo | null {
+    return this.stopById.get(stopId) ?? null;
+  }
+
+  /** Stop names arrive as "Westbound Davie St @ Bidwell St". */
+  stopName(stopId: string): string | null {
+    return this.stopById.get(stopId)?.n ?? null;
+  }
+
+  routeName(routeId: string): string {
+    const route = this.routes.get(routeId);
+    return route?.n || "";
   }
 
   routeLabel(routeId: string): string {

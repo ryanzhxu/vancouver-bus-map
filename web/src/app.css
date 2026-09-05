@@ -266,3 +266,112 @@ body {
     animation: none !important;
   }
 }
+
+/* ---------- selected bus card ---------- */
+
+.buscard {
+  position: absolute;
+  left: 0.5rem;
+  right: 0.5rem;
+  bottom: calc(3.75rem + env(safe-area-inset-bottom));
+  left: max(0.5rem, env(safe-area-inset-left));
+  right: max(0.5rem, env(safe-area-inset-right));
+  z-index: 4;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 0.75rem;
+  /* On a wide screen it should not stretch the width of a desktop monitor. */
+  max-width: 26rem;
+}
+
+.buscard-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.route-badge {
+  flex: none;
+  min-width: 2.5rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 6px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.95rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.buscard-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.buscard-title strong {
+  font-size: 0.98rem;
+  /* Headsigns can be long; wrap rather than pushing the close button away. */
+  overflow-wrap: anywhere;
+}
+
+.buscard-title .sub {
+  font-size: 0.8rem;
+  color: var(--ink-3);
+}
+
+.buscard-close {
+  flex: none;
+  width: var(--tap);
+  height: var(--tap);
+  margin: -0.35rem -0.25rem 0 0;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--ink-3);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.buscard-close:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: -6px;
+  border-radius: 8px;
+}
+
+.buscard-rows {
+  margin: 0.6rem 0 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.buscard-rows > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: baseline;
+}
+
+.buscard-rows dt {
+  color: var(--ink-3);
+  font-size: 0.8rem;
+  flex: none;
+}
+
+.buscard-rows dd {
+  margin: 0;
+  font-size: 0.88rem;
+  text-align: right;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.wheelchair {
+  color: var(--ok);
+  font-size: 1rem;
+}
