@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+
+      - name: Install worker deps
+        run: npm ci
+
+      - name: Install web deps
+        run: npm ci --prefix web
+
+      - name: Typecheck worker
+        run: npx tsc --noEmit
+
+      - name: Test
+        run: npm test
+
+      - name: Build web
+        run: npm run build
+
+      - name: Check the deploy bundle is valid
+        run: npx wrangler deploy --dry-run --outdir=/tmp/vbm-dryrun

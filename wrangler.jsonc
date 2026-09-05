@@ -1,0 +1,40 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vancouver-bus-map",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-05",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "LIVE_FEED",
+        "class_name": "LiveFeed"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["LiveFeed"]
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "SNAPSHOT",
+      "id": "fa053deab4984aaebd962d7cee979d6a"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "GTFS",
+      "bucket_name": "vbm-gtfs"
+    }
+  ]
+}
