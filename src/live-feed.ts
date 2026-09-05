@@ -237,7 +237,8 @@ export class LiveFeed extends DurableObject<Env> {
       requestsToday: requests?.count ?? 0,
       requestDate: requests?.date ?? null,
       vehicles: vehicles?.length ?? 0,
-      feedTimestamp,
+      // Coerce undefined to null so the key survives JSON.stringify.
+      feedTimestamp: feedTimestamp ?? null,
       inServiceWindow: inServiceWindow(new Date()),
       vancouverHour: vancouverHour(new Date()),
       openSockets: this.ctx.getWebSockets().length,
