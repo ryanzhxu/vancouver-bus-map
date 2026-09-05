@@ -1,4 +1,5 @@
 import { DAILY_LIMIT, TRANSLINK_ATTRIBUTION, dailyRequestBudget } from "./config.js";
+import { handleAsset, handleManifest } from "./gtfs-assets.js";
 import type { Env } from "./types.js";
 
 export { LiveFeed } from "./live-feed.js";
@@ -18,6 +19,14 @@ export default {
         budget: { ...budget, limit: DAILY_LIMIT, headroom: DAILY_LIMIT - budget.total },
         attribution: TRANSLINK_ATTRIBUTION,
       });
+    }
+
+    if (url.pathname === "/api/gtfs/manifest") {
+      return handleManifest(env);
+    }
+
+    if (url.pathname.startsWith("/gtfs/")) {
+      return handleAsset(url, env);
     }
 
     // Everything under /api/live is served by the Durable Object.
