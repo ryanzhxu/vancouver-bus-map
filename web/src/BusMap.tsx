@@ -17,6 +17,13 @@ export type FeedState =
   | { kind: "waiting"; reason: string }
   | { kind: "error"; message: string };
 
+export interface SelectedStop {
+  id: string;
+  name: string;
+  code: string;
+  accessible: number;
+}
+
 export interface SelectedBus {
   id: string;
   routeLabel: string;
@@ -31,9 +38,13 @@ export interface SelectedBus {
 export function BusMap({
   onState,
   onSelect,
+  onSelectStop,
+  onReady,
 }: {
   onState: (state: FeedState) => void;
   onSelect: (bus: SelectedBus | null) => void;
+  onSelectStop: (stop: SelectedStop | null) => void;
+  onReady: (gtfs: GtfsData) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
@@ -47,6 +58,10 @@ export function BusMap({
   onStateRef.current = onState;
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
+  const onSelectStopRef = useRef(onSelectStop);
+  onSelectStopRef.current = onSelectStop;
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
   /** Latest wire record per bus, for the detail sheet. */
   const wireById = useRef(new Map<string, { r: string; d?: string; p: string; s: number }>());
   const selectedId = useRef<string | null>(null);
@@ -88,7 +103,13 @@ export function BusMap({
 
     // Exposed for debugging a live page: `__vbm` in the console tells you
     // whether the render loop is running and what the feed has delivered.
-    const diagnostics = { frames: 0, snapshots: 0, buses: 0, mapPainted: false };
+    const diagnostics: {
+      frames: number;
+      snapshots: number;
+      buses: number;
+      mapPainted: boolean;
+      map: maplibregl.Map;
+    } = { frames: 0, snapshots: 0, buses: 0, mapPainted: false, map };
     (window as unknown as Record<string, unknown>).__vbm = diagnostics;
 
     let stopped = false;
@@ -168,8 +189,19 @@ export function BusMap({
           [event.point.x - 12, event.point.y - 12],
           [event.point.x + 12, event.point.y + 12],
         ];
-        const hits = map.queryRenderedFeatures(box, { layers: ["bus-dots"] });
-        select(hits[0]?.properties?.["id"] as string | undefined);
+        // Buses win ties: they are smaller targets and the more likely intent.
+        const busHits = map.queryRenderedFeatures(box, { layers: ["bus-dots"] });
+        if (busHits.length > 0) {
+          selectStop(undefined);
+          select(busHits[0]?.properties?.["id"] as string | undefined);
+          return;
+        }
+
+        const stopLayer = map.getLayer("stop-dots") ? ["stop-dots"] : [];
+        const stopHits =
+          stopLayer.length > 0 ? map.queryRenderedFeatures(box, { layers: stopLayer }) : [];
+        select(undefined);
+        selectStop(stopHits[0]?.properties?.["id"] as string | undefined);
       });
 
       map.getCanvas().style.cursor = "";
@@ -182,6 +214,59 @@ export function BusMap({
 
       void start();
     });
+
+    /**
+     * Stops only appear from zoom 14. There are 8,945 of them and at city zoom
+     * they would bury the buses, which are the point of the map.
+     */
+    function addStopsLayer(gtfs: GtfsData): void {
+      if (map.getSource("stops")) return;
+
+      map.addSource("stops", {
+        type: "geojson",
+        data: {
+          type: "FeatureCollection",
+          features: gtfs.stops
+            // location_type 2 is a station entrance, not somewhere a bus calls.
+            .filter((stop) => stop.l !== 2)
+            .map((stop) => ({
+              type: "Feature" as const,
+              geometry: { type: "Point" as const, coordinates: [stop.x, stop.y] },
+              properties: { id: stop.i, name: stop.n, code: stop.c, w: stop.w },
+            })),
+        },
+      });
+
+      map.addLayer(
+        {
+          id: "stop-dots",
+          type: "circle",
+          source: "stops",
+          minzoom: 14,
+          paint: {
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 14, 2.5, 17, 5],
+            "circle-color": "#ffffff",
+            "circle-stroke-width": 1.5,
+            "circle-stroke-color": "#8a97a3",
+          },
+        },
+        "bus-selected",
+      );
+    }
+
+    function selectStop(id: string | undefined): void {
+      const gtfs = gtfsRef.current;
+      if (!id || !gtfs) {
+        onSelectStopRef.current(null);
+        return;
+      }
+      const stop = gtfs.stop(id);
+      if (!stop) {
+        onSelectStopRef.current(null);
+        return;
+      }
+      onSelectStopRef.current({ id: stop.i, name: stop.n, code: stop.c, accessible: stop.w });
+    }
 
     function select(id: string | undefined): void {
       const gtfs = gtfsRef.current;
@@ -234,6 +319,8 @@ export function BusMap({
         return shapeId ? gtfs.trackFor(shapeId) : null;
       });
 
+      addStopsLayer(gtfs);
+      onReadyRef.current(gtfs);
       setReady(true);
       connect();
       animate();

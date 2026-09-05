@@ -1,5 +1,6 @@
 import { DAILY_LIMIT, TRANSLINK_ATTRIBUTION, dailyRequestBudget } from "./config.js";
 import { handleAsset, handleManifest } from "./gtfs-assets.js";
+import { handleStop } from "./stop-api.js";
 import type { Env } from "./types.js";
 
 export { LiveFeed } from "./live-feed.js";
@@ -27,6 +28,10 @@ export default {
 
     if (url.pathname.startsWith("/gtfs/")) {
       return handleAsset(url, env);
+    }
+
+    if (url.pathname.startsWith("/api/stop/")) {
+      return handleStop(url, env, env.LIVE_FEED.getByName(FEED_ID));
     }
 
     // Everything under /api/live is served by the Durable Object.

@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react";
-import { BusMap, type FeedState, type SelectedBus } from "./BusMap.js";
+import { BusMap, type FeedState, type SelectedBus, type SelectedStop } from "./BusMap.js";
+import type { GtfsData } from "./gtfs.js";
+
+interface Arrival {
+  routeId: string;
+  tripId: string;
+  time: number;
+  live: boolean;
+  delay: number | null;
+}
 
 const ATTRIBUTION =
   "Some of the data used in this product or service is provided by permission of " +
@@ -10,12 +19,15 @@ export function App() {
   const [feed, setFeed] = useState<FeedState>({ kind: "connecting" });
   const [showAbout, setShowAbout] = useState(false);
   const [bus, setBus] = useState<SelectedBus | null>(null);
+  const [stop, setStop] = useState<SelectedStop | null>(null);
+  const [gtfs, setGtfs] = useState<GtfsData | null>(null);
 
   return (
     <div className="app">
-      <BusMap onState={setFeed} onSelect={setBus} />
+      <BusMap onState={setFeed} onSelect={setBus} onSelectStop={setStop} onReady={setGtfs} />
 
       {bus && <BusCard bus={bus} onClose={() => setBus(null)} />}
+      {stop && <StopCard stop={stop} gtfs={gtfs} onClose={() => setStop(null)} />}
 
       <div className="statusbar">
         <StatusPill feed={feed} />
@@ -69,6 +81,107 @@ function BusCard({ bus, onClose }: { bus: SelectedBus; onClose: () => void }) {
       </dl>
     </div>
   );
+}
+
+function StopCard({
+  stop,
+  gtfs,
+  onClose,
+}: {
+  stop: SelectedStop;
+  gtfs: GtfsData | null;
+  onClose: () => void;
+}) {
+  const [arrivals, setArrivals] = useState<Arrival[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setArrivals(null);
+    setError(null);
+
+    const load = async () => {
+      try {
+        const response = await fetch(`/api/stop/${encodeURIComponent(stop.id)}?limit=6`);
+        if (!response.ok) throw new Error(`responded ${response.status}`);
+        const body = (await response.json()) as { arrivals: Arrival[] };
+        if (!cancelled) setArrivals(body.arrivals);
+      } catch (cause) {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : "could not load");
+      }
+    };
+
+    void load();
+    // Predictions refresh every 3 minutes upstream; halve that so the card
+    // never shows a time that has quietly expired.
+    const timer = setInterval(() => void load(), 90_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [stop.id]);
+
+  return (
+    <div className="buscard stopcard" role="dialog" aria-label={stop.name}>
+      <div className="buscard-head">
+        <div className="buscard-title">
+          <strong>{stop.name}</strong>
+          <span className="sub">
+            {stop.code && `Stop ${stop.code}`}
+            {stop.accessible === 1 && <span className="wheelchair"> &#9855;</span>}
+          </span>
+        </div>
+        <button className="buscard-close" onClick={onClose} aria-label="Close">
+          &times;
+        </button>
+      </div>
+
+      {error && <p className="arrivals-empty">{error}</p>}
+      {!error && arrivals === null && <p className="arrivals-empty">Loading arrivals…</p>}
+      {!error && arrivals?.length === 0 && (
+        <p className="arrivals-empty">Nothing scheduled from here right now.</p>
+      )}
+
+      {arrivals && arrivals.length > 0 && (
+        <ul className="arrivals">
+          {arrivals.map((arrival) => (
+            <li key={arrival.tripId}>
+              <span
+                className="arrival-route"
+                style={gtfs ? { color: gtfs.routeColor(arrival.routeId) } : undefined}
+              >
+                {gtfs ? gtfs.routeLabel(arrival.routeId) : arrival.routeId}
+              </span>
+              <span className="arrival-when">{countdown(arrival.time)}</span>
+              <span className={`arrival-kind ${arrival.live ? "live" : "sched"}`}>
+                {arrival.live ? describeDelay(arrival.delay) : "scheduled"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function countdown(epochSeconds: number): string {
+  const seconds = epochSeconds - Math.floor(Date.now() / 1000);
+  if (seconds < 30) return "now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  return new Date(epochSeconds * 1000).toLocaleTimeString("en-CA", {
+    timeZone: "America/Vancouver",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function describeDelay(delay: number | null): string {
+  if (delay === null) return "live";
+  const minutes = Math.round(delay / 60);
+  if (minutes <= -1) return `${Math.abs(minutes)} min early`;
+  if (minutes >= 1) return `${minutes} min late`;
+  return "on time";
 }
 
 function StatusPill({ feed }: { feed: FeedState }) {

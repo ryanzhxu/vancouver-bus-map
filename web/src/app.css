@@ -375,3 +375,66 @@ body {
   color: var(--ok);
   font-size: 1rem;
 }
+
+/* ---------- stop arrivals ---------- */
+
+.stopcard {
+  max-width: 28rem;
+}
+
+.arrivals {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.arrivals li {
+  display: grid;
+  /* Route badge, countdown, then status — the countdown is what people scan. */
+  grid-template-columns: 3.25rem 4.5rem 1fr;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--rule);
+  min-height: 2.25rem;
+}
+
+.arrivals li:first-child {
+  border-top: 0;
+}
+
+.arrival-route {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.arrival-when {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.02rem;
+  font-weight: 600;
+}
+
+.arrival-kind {
+  font-size: 0.78rem;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+/* Live and scheduled must not look alike: one is a prediction, the other a
+   promise the timetable made months ago. */
+.arrival-kind.live {
+  color: var(--ok);
+}
+
+.arrival-kind.sched {
+  color: var(--ink-3);
+}
+
+.arrivals-empty {
+  margin: 0.75rem 0 0.25rem;
+  color: var(--ink-3);
+  font-size: 0.88rem;
+}

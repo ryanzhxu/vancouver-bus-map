@@ -68,6 +68,16 @@ export class LiveFeed extends DurableObject<Env> {
       });
     }
 
+    if (url.pathname.endsWith("/predictions")) {
+      const stopId = url.searchParams.get("stop");
+      if (!stopId) return Response.json({ error: "stop parameter required" }, { status: 400 });
+
+      await this.ensureAlarm();
+      const byStop =
+        (await this.ctx.storage.get<Record<string, StopPrediction[]>>("predictions")) ?? {};
+      return Response.json({ stopId, predictions: byStop[stopId] ?? [] });
+    }
+
     if (url.pathname.endsWith("/status")) {
       await this.ensureAlarm();
       return Response.json(await this.status());

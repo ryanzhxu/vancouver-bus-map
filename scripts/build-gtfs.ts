@@ -48,10 +48,10 @@ async function main(): Promise<void> {
 
   const routes = await buildRoutes();
   const stops = await buildStops();
-  const { trips, shapeIdsByRoute } = await buildTrips();
+  const { trips, shapeIdsByRoute, tripMeta } = await buildTrips();
   const shapeStats = await buildShapes(shapeIdsByRoute);
   await buildCalendar();
-  if (withSchedules) await buildSchedules(stops);
+  if (withSchedules) await buildSchedules(stops, tripMeta);
   else console.log("  schedules: skipped (pass --schedules)");
 
   await writeJson("manifest.json", {
@@ -177,18 +177,25 @@ async function buildStops(): Promise<Map<string, { lat: number; lon: number }>> 
   return index;
 }
 
-async function buildTrips(): Promise<{ trips: number; shapeIdsByRoute: Map<string, Set<string>> }> {
+async function buildTrips(): Promise<{
+  trips: number;
+  shapeIdsByRoute: Map<string, Set<string>>;
+  tripMeta: Map<string, [string, string]>;
+}> {
   // trip_id -> [routeId, shapeId, headsign, directionId]
   // The Durable Object loads this to enrich each vehicle with its shape, so the
   // client never downloads a 128k-entry index.
   const trips: Record<string, [string, string, string, number]> = {};
   const shapeIdsByRoute = new Map<string, Set<string>>();
+  /** tripId -> [routeId, serviceId], used to expand stop_times. */
+  const tripMeta = new Map<string, [string, string]>();
   let count = 0;
 
   for await (const t of rows("trips.txt")) {
     const routeId = t["route_id"] ?? "";
     const shapeId = t["shape_id"] ?? "";
     trips[t["trip_id"]!] = [routeId, shapeId, t["trip_headsign"] ?? "", Number(t["direction_id"] || 0)];
+    tripMeta.set(t["trip_id"]!, [routeId, t["service_id"] ?? ""]);
     count++;
 
     if (shapeId) {
@@ -199,7 +206,7 @@ async function buildTrips(): Promise<{ trips: number; shapeIdsByRoute: Map<strin
   }
 
   await writeJson("trips.json", trips);
-  return { trips: count, shapeIdsByRoute };
+  return { trips: count, shapeIdsByRoute, tripMeta };
 }
 
 /**
@@ -286,38 +293,97 @@ async function buildCalendar(): Promise<void> {
  * Scheduled departures, one object per stop.
  *
  * This is what replaces a database. stop_times.txt is 3.7M rows; grouped by
- * stop it becomes 8,945 small objects that answer "what is scheduled here"
- * with a single R2 get.
+ * stop it becomes 8,945 small objects, each answering "what is scheduled here"
+ * with a single R2 get and no query planner.
+ *
+ * Route and service ids are interned per file because a stop sees only a
+ * handful of each across hundreds of departures.
  */
-async function buildSchedules(stops: Map<string, unknown>): Promise<void> {
-  const byStop = new Map<string, Array<[string, number, number]>>();
+async function buildSchedules(
+  stops: Map<string, unknown>,
+  tripMeta: Map<string, [string, string]>,
+): Promise<void> {
+  interface StopSchedule {
+    routes: string[];
+    services: string[];
+    routeIndex: Map<string, number>;
+    serviceIndex: Map<string, number>;
+    departures: Array<[number, number, number, string]>;
+  }
+
+  const byStop = new Map<string, StopSchedule>();
   let seen = 0;
+  let orphaned = 0;
 
   for await (const st of rows("stop_times.txt")) {
     const stopId = st["stop_id"];
-    if (!stopId) continue;
+    const tripId = st["trip_id"];
+    if (!stopId || !tripId) continue;
+
     const departure = toSeconds(st["departure_time"] ?? st["arrival_time"] ?? "");
     if (departure === null) continue;
 
-    let arr = byStop.get(stopId);
-    if (!arr) byStop.set(stopId, (arr = []));
-    arr.push([st["trip_id"] ?? "", departure, Number(st["stop_sequence"] || 0)]);
+    const meta = tripMeta.get(tripId);
+    if (!meta) {
+      orphaned++;
+      continue;
+    }
+
+    let entry = byStop.get(stopId);
+    if (!entry) {
+      entry = {
+        routes: [],
+        services: [],
+        routeIndex: new Map(),
+        serviceIndex: new Map(),
+        departures: [],
+      };
+      byStop.set(stopId, entry);
+    }
+
+    entry.departures.push([
+      intern(entry.routes, entry.routeIndex, meta[0]),
+      intern(entry.services, entry.serviceIndex, meta[1]),
+      departure,
+      tripId,
+    ]);
     seen++;
 
     if (seen % 1_000_000 === 0) console.log(`  stop_times: ${seen / 1_000_000}M rows ...`);
   }
 
   await mkdir(join(OUT, "sched"), { recursive: true });
-  for (const [stopId, list] of byStop) {
-    list.sort((a, b) => a[1] - b[1]);
-    await writeJson(join("sched", `${stopId}.json`), list);
+
+  /** stopId -> route ids, so the stop card can name routes without the schedule. */
+  const stopRoutes: Record<string, string[]> = {};
+
+  for (const [stopId, entry] of byStop) {
+    entry.departures.sort((a, b) => a[2] - b[2]);
+    stopRoutes[stopId] = entry.routes;
+    await writeJson(join("sched", `${stopId}.json`), {
+      r: entry.routes,
+      s: entry.services,
+      d: entry.departures,
+    });
   }
+
+  await writeJson("stop-routes.json", stopRoutes);
 
   const missing = [...byStop.keys()].filter((id) => !stops.has(id)).length;
   console.log(
     `  schedules: ${seen} stop_times -> ${byStop.size} stop objects` +
-      (missing ? ` (${missing} reference unknown stops)` : ""),
+      (missing ? `, ${missing} for unknown stops` : "") +
+      (orphaned ? `, ${orphaned} rows had no trip` : ""),
   );
+}
+
+function intern(list: string[], index: Map<string, number>, value: string): number {
+  const existing = index.get(value);
+  if (existing !== undefined) return existing;
+  const next = list.length;
+  list.push(value);
+  index.set(value, next);
+  return next;
 }
 
 /* ------------------------------------------------------------------ */
