@@ -1,45 +1,40 @@
 /*
- * Mobile first. Every size below is checked against the narrow end of the
- * range (iPhone SE, 320px) as well as large phones, so nothing relies on
- * width we might not get.
+ * Mobile first. Sizes are checked at the narrow end (iPhone SE, 320px) as well
+ * as large phones, so nothing depends on width we may not get. The map fills
+ * the viewport; every control sits inside the safe-area insets so nothing
+ * hides under a notch or a home indicator.
  */
 
 :root {
-  --ground: #f2f4f6;
   --surface: #ffffff;
-  --surface-2: #e7ebf0;
+  --surface-2: #eef1f4;
   --ink: #141a21;
   --ink-2: #4b5764;
   --ink-3: #78848f;
   --rule: #d4dae1;
-  --accent: #0033a0;
+  --accent: #0b6ea8;
   --ok: #0e6c46;
-  --ok-bg: #ddefe6;
   --warn: #8a5200;
-  --warn-bg: #f7ead5;
   --stop: #9e2b22;
-  --stop-bg: #f6e2e0;
+  --shadow: 0 1px 2px rgb(20 26 33 / 12%), 0 8px 24px -12px rgb(20 26 33 / 30%);
 
-  --tap: 44px; /* minimum touch target */
+  --tap: 44px;
   color-scheme: light dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --ground: #0b0f14;
-    --surface: #151b22;
+    --surface: #161b22;
     --surface-2: #1e252d;
     --ink: #e7ebef;
     --ink-2: #a5b0bb;
     --ink-3: #78848f;
     --rule: #283038;
-    --accent: #7da5f0;
+    --accent: #58a6d8;
     --ok: #5fcb99;
-    --ok-bg: #10261c;
     --warn: #e0a85e;
-    --warn-bg: #2a2013;
     --stop: #ee928a;
-    --stop-bg: #2c1a18;
+    --shadow: 0 1px 2px rgb(0 0 0 / 50%), 0 8px 24px -12px rgb(0 0 0 / 80%);
   }
 }
 
@@ -48,164 +43,221 @@
 }
 
 html,
-body {
+body,
+#root {
   margin: 0;
   padding: 0;
-  min-height: 100%;
+  height: 100%;
+  /* 100dvh follows the mobile browser chrome as it collapses; without it the
+     bottom bar sits under Safari's toolbar. */
+  min-height: 100dvh;
 }
 
 body {
-  background: var(--ground);
-  color: var(--ink);
-  font-family:
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    sans-serif;
-  font-size: 16px; /* never below 16 — iOS zooms the page on smaller inputs */
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-  /* Respect the notch and the home indicator. */
-  padding: env(safe-area-inset-top) env(safe-area-inset-right)
-    env(safe-area-inset-bottom) env(safe-area-inset-left);
-}
-
-.wrap {
-  max-width: 42rem;
-  margin: 0 auto;
-  padding: 1.25rem 1rem 3rem;
-}
-
-header h1 {
-  font-size: clamp(1.6rem, 7vw, 2.4rem);
-  line-height: 1.1;
-  letter-spacing: -0.02em;
-  margin: 0 0 0.35rem;
-  text-wrap: balance;
-}
-
-.tagline {
-  color: var(--ink-2);
-  margin: 0 0 1.5rem;
-}
-
-.card {
   background: var(--surface);
-  border: 1px solid var(--rule);
-  border-radius: 10px;
-  padding: 1rem;
-  margin-bottom: 0.75rem;
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
 }
 
-.card h2 {
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--ink-3);
-  margin: 0 0 0.75rem;
-  font-weight: 600;
+.app {
+  position: relative;
+  height: 100dvh;
+  width: 100%;
+  overflow: hidden;
 }
 
-.rows {
+.map-shell,
+.map {
+  position: absolute;
+  inset: 0;
+}
+
+.map-loading {
+  position: absolute;
+  inset: 0;
   display: grid;
-  gap: 0.5rem;
-}
-
-.row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 1rem;
-  min-height: 1.75rem;
-}
-
-.row dt {
+  place-items: center;
+  background: var(--surface);
   color: var(--ink-2);
-  font-size: 0.9rem;
+  z-index: 2;
 }
 
-.row dd {
-  margin: 0;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  font-weight: 500;
-  /* Long values wrap instead of pushing the layout sideways on a 320px screen. */
+/* ---------- status bar ---------- */
+
+.statusbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  padding-left: max(0.75rem, env(safe-area-inset-left));
+  padding-right: max(0.75rem, env(safe-area-inset-right));
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  background: var(--surface);
+  border-top: 1px solid var(--rule);
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  color: var(--ink-2);
   min-width: 0;
+  flex: 1;
+  /* A long error must wrap inside the bar, not push the button off screen. */
   overflow-wrap: anywhere;
 }
 
-.pill {
-  display: inline-block;
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+.status strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
 }
 
-.pill.ok {
-  background: var(--ok-bg);
-  color: var(--ok);
-}
-.pill.warn {
-  background: var(--warn-bg);
-  color: var(--warn);
-}
-.pill.stop {
-  background: var(--stop-bg);
-  color: var(--stop);
+.age {
+  color: var(--ink-3);
+  font-size: 0.8rem;
 }
 
-.bar {
+.dot {
+  width: 8px;
   height: 8px;
-  background: var(--surface-2);
-  border-radius: 4px;
-  overflow: hidden;
-  margin-top: 0.5rem;
+  border-radius: 50%;
+  flex: none;
 }
 
-.bar > i {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  border-radius: 4px;
+.dot.live {
+  background: var(--ok);
+}
+.dot.warn {
+  background: var(--warn);
+}
+.dot.stop {
+  background: var(--stop);
 }
 
-button.refresh {
+.about-button {
   min-height: var(--tap);
-  width: 100%;
+  min-width: var(--tap);
+  padding: 0 0.9rem;
   font: inherit;
+  font-size: 0.85rem;
   font-weight: 600;
-  color: var(--surface);
-  background: var(--accent);
-  border: 0;
-  border-radius: 10px;
-  padding: 0 1rem;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  flex: none;
   cursor: pointer;
-  margin-top: 0.5rem;
-  /* Kill the grey flash on tap in mobile Safari and Chrome. */
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
 
-button.refresh:disabled {
-  opacity: 0.6;
-}
-
-button.refresh:focus-visible {
+.about-button:focus-visible,
+.sheet-close:focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 2px;
 }
 
-footer {
-  margin-top: 1.5rem;
-  color: var(--ink-3);
-  font-size: 0.78rem;
-  line-height: 1.5;
+/* ---------- about sheet ---------- */
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: rgb(0 0 0 / 45%);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
 }
 
-footer a {
+.sheet {
+  width: 100%;
+  max-width: 34rem;
+  background: var(--surface);
+  border-radius: 16px 16px 0 0;
+  padding: 0.75rem 1.25rem 1.25rem;
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+  box-shadow: var(--shadow);
+  /* Long content scrolls inside the sheet rather than growing past the screen. */
+  max-height: 85dvh;
+  overflow-y: auto;
+}
+
+.sheet-grip {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--rule);
+  margin: 0 auto 0.75rem;
+}
+
+.sheet h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.25rem;
+  letter-spacing: -0.01em;
+}
+
+.sheet p {
+  margin: 0 0 0.75rem;
   color: var(--ink-2);
+  font-size: 0.95rem;
+}
+
+.sheet .note {
+  color: var(--ink);
+  background: var(--surface-2);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.88rem;
+}
+
+.sheet .fine {
+  font-size: 0.75rem;
+  color: var(--ink-3);
+  line-height: 1.45;
+}
+
+.sheet a {
+  color: var(--accent);
+}
+
+.sheet-close {
+  width: 100%;
+  min-height: var(--tap);
+  margin-top: 0.5rem;
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* MapLibre's own controls need to clear the status bar and the insets. */
+.maplibregl-ctrl-bottom-right {
+  bottom: calc(3.25rem + env(safe-area-inset-bottom));
+}
+
+.maplibregl-ctrl-top-right {
+  top: max(0.5rem, env(safe-area-inset-top));
+  right: max(0.5rem, env(safe-area-inset-right));
+}
+
+.maplibregl-ctrl button {
+  width: 36px;
+  height: 36px;
 }
 
 @media (prefers-reduced-motion: reduce) {

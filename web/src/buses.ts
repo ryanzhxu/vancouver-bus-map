@@ -1,0 +1,195 @@
+import {
+  bearingAt,
+  bearingBetween,
+  buildTrack,
+  lerp,
+  pointAtDistance,
+  projectOntoTrack,
+  type LatLon,
+  type Track,
+} from "./geo.js";
+
+/** A vehicle as it arrives on the wire. Keys are short to keep payloads small. */
+export interface WireVehicle {
+  i: string;
+  r: string;
+  t: string;
+  y: number;
+  x: number;
+  s: number;
+  p: string;
+  /** shape id, joined server-side from the static trips index */
+  h?: string;
+  /** trip headsign */
+  d?: string;
+}
+
+export interface Snapshot {
+  type: "snapshot";
+  generatedAt: number;
+  feedTimestamp: number | null;
+  pollSeconds: number;
+  vehicles: WireVehicle[];
+}
+
+export interface RenderedBus {
+  id: string;
+  routeId: string;
+  tripId: string;
+  lat: number;
+  lon: number;
+  bearing: number;
+  /** True while gliding between two real samples. */
+  moving: boolean;
+}
+
+interface BusState {
+  id: string;
+  routeId: string;
+  tripId: string;
+  from: LatLon;
+  to: LatLon;
+  /** Distances along the track, when we have geometry for this trip. */
+  fromDistance: number | null;
+  toDistance: number | null;
+  track: Track | null;
+  startedAt: number;
+  durationMs: number;
+  lastSeen: number;
+}
+
+/** Drop a bus that has not appeared in this many milliseconds. */
+const STALE_MS = 6 * 60_000;
+
+/**
+ * Holds every bus and answers "where is each one right now".
+ *
+ * Positions arrive every 90 seconds. Between samples each bus glides along its
+ * route's polyline, so the map moves continuously instead of stepping. A bus
+ * with no geometry falls back to a straight line, which is visibly worse but
+ * never wrong enough to matter for a single sample.
+ */
+export class BusField {
+  private buses = new Map<string, BusState>();
+  private tracks: (tripId: string, routeId: string) => Track | null;
+
+  constructor(trackLookup: (tripId: string, routeId: string) => Track | null) {
+    this.tracks = trackLookup;
+  }
+
+  get size(): number {
+    return this.buses.size;
+  }
+
+  /** Fold a new snapshot in, starting a fresh glide for every bus that moved. */
+  ingest(snapshot: Snapshot, now = Date.now()): void {
+    const durationMs = Math.max(1000, snapshot.pollSeconds * 1000);
+
+    for (const v of snapshot.vehicles) {
+      const target: LatLon = [v.y, v.x];
+      const existing = this.buses.get(v.i);
+      const track = this.tracks(v.t, v.r);
+
+      // Start the glide from wherever the bus is being drawn right now, not
+      // from the previous sample. Otherwise a late snapshot makes it jump back.
+      const from = existing ? this.positionOf(existing, now).point : target;
+
+      const fromDistance = track ? projectOntoTrack(track, from, existing?.toDistance ?? undefined).distanceAlong : null;
+      const toDistance = track
+        ? projectOntoTrack(track, target, fromDistance ?? undefined).distanceAlong
+        : null;
+
+      this.buses.set(v.i, {
+        id: v.i,
+        routeId: v.r,
+        tripId: v.t,
+        from,
+        to: target,
+        fromDistance,
+        toDistance,
+        track,
+        startedAt: now,
+        durationMs,
+        lastSeen: now,
+      });
+    }
+
+    this.dropStale(now);
+  }
+
+  /** Every bus, positioned for this instant. */
+  positionsAt(now = Date.now()): RenderedBus[] {
+    const out: RenderedBus[] = [];
+
+    for (const bus of this.buses.values()) {
+      const { point, bearing, moving } = this.positionOf(bus, now);
+      out.push({
+        id: bus.id,
+        routeId: bus.routeId,
+        tripId: bus.tripId,
+        lat: point[0],
+        lon: point[1],
+        bearing,
+        moving,
+      });
+    }
+
+    return out;
+  }
+
+  private positionOf(
+    bus: BusState,
+    now: number,
+  ): { point: LatLon; bearing: number; moving: boolean } {
+    const progress = clamp01((now - bus.startedAt) / bus.durationMs);
+    const moving = progress < 1;
+
+    if (bus.track && bus.fromDistance !== null && bus.toDistance !== null) {
+      // Guard against a bad projection sending the bus backwards along the
+      // route. Buses do reverse at termini, but not 2km in 90 seconds.
+      const delta = bus.toDistance - bus.fromDistance;
+      if (Math.abs(delta) < MAX_GLIDE_DEGREES) {
+        const along = bus.fromDistance + delta * progress;
+        const heading = bearingAt(bus.track, along);
+        return {
+          point: pointAtDistance(bus.track, along),
+          // Travelling backwards along the shape means the bus faces the other way.
+          bearing: delta < 0 ? (heading + 180) % 360 : heading,
+          moving,
+        };
+      }
+    }
+
+    return {
+      point: lerp(bus.from, bus.to, progress),
+      bearing: bearingBetween(bus.from, bus.to),
+      moving,
+    };
+  }
+
+  private dropStale(now: number): void {
+    for (const [id, bus] of this.buses) {
+      if (now - bus.lastSeen > STALE_MS) this.buses.delete(id);
+    }
+  }
+}
+
+/**
+ * About 3.3km in equivalent latitude degrees, or roughly 130km/h over a
+ * 90-second poll. Past that, the projection has almost certainly snapped to the
+ * wrong leg of a route that doubles back, so we fall back to a straight line.
+ *
+ * Do not tighten this to "normal bus speed". Highway coaches on the 555 and the
+ * 620 to the ferry genuinely cover 2.5km between polls, and clipping them would
+ * make the express routes the ones that look broken.
+ */
+const MAX_GLIDE_DEGREES = 0.03;
+
+function clamp01(n: number): number {
+  return n < 0 ? 0 : n > 1 ? 1 : n;
+}
+
+/** Convenience for callers holding raw shape arrays. */
+export function trackFromPoints(points: LatLon[]): Track {
+  return buildTrack(points);
+}

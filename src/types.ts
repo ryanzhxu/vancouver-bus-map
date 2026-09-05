@@ -28,7 +28,14 @@ export interface WireVehicle {
   s: number;
   /** next stop id */
   p: string;
+  /** shape id, joined from the static trips index so the client can glide */
+  h?: string;
+  /** trip headsign, e.g. "UBC" */
+  d?: string;
 }
+
+/** trip_id -> [routeId, shapeId, headsign, directionId] */
+export type TripIndex = Record<string, [string, string, string, number]>;
 
 export interface Snapshot {
   type: "snapshot";

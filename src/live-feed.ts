@@ -16,7 +16,7 @@ import {
   type Alert,
   type Vehicle,
 } from "./gtfs-rt.js";
-import type { Env, Snapshot, StopPrediction, WireVehicle } from "./types.js";
+import type { Env, Snapshot, StopPrediction, TripIndex, WireVehicle } from "./types.js";
 
 const SNAPSHOT_KEY = "live:snapshot";
 
@@ -32,6 +32,8 @@ const SNAPSHOT_KEY = "live:snapshot";
  */
 export class LiveFeed extends DurableObject<Env> {
   private snapshot: Snapshot | null = null;
+  private trips: TripIndex | null = null;
+  private tripsVersion: string | null = null;
 
   /** Called by the Worker for any client request routed to this object. */
   override async fetch(request: Request): Promise<Response> {
@@ -163,14 +165,35 @@ export class LiveFeed extends DurableObject<Env> {
   private async buildSnapshot(): Promise<Snapshot> {
     const vehicles = (await this.ctx.storage.get<Vehicle[]>("vehicles")) ?? [];
     const feedTimestamp = (await this.ctx.storage.get<number | null>("feedTimestamp")) ?? null;
+    const trips = await this.tripIndex();
 
     return {
       type: "snapshot",
       generatedAt: Date.now(),
       feedTimestamp,
       pollSeconds: POLL_SECONDS,
-      vehicles: vehicles.map(toWire),
+      vehicles: vehicles.map((v) => toWire(v, trips)),
     };
+  }
+
+  /**
+   * The static trip index, held in memory.
+   *
+   * 128k entries is roughly 7MB against a 128MB limit, and it saves shipping
+   * the same index to every phone. Loaded once per isolate and refreshed only
+   * when a new GTFS build is published.
+   */
+  private async tripIndex(): Promise<TripIndex | null> {
+    const version = await this.env.SNAPSHOT.get("gtfs_current");
+    if (!version) return null;
+    if (this.trips && this.tripsVersion === version) return this.trips;
+
+    const object = await this.env.GTFS.get(`v/${version}/trips.json`);
+    if (!object) return null;
+
+    this.trips = (await object.json()) as TripIndex;
+    this.tripsVersion = version;
+    return this.trips;
   }
 
   private async currentSnapshot(): Promise<Snapshot | null> {
@@ -252,7 +275,8 @@ export class LiveFeed extends DurableObject<Env> {
 /* ------------------------------------------------------------------ */
 
 /** Trim a decoded vehicle to what the map needs, keeping the payload small. */
-function toWire(v: Vehicle): WireVehicle {
+function toWire(v: Vehicle, trips: TripIndex | null): WireVehicle {
+  const entry = v.tripId ? trips?.[v.tripId] : undefined;
   return {
     i: v.id,
     r: v.routeId ?? "",
@@ -261,6 +285,10 @@ function toWire(v: Vehicle): WireVehicle {
     x: round5(v.lon),
     s: v.stopSequence ?? 0,
     p: v.stopId ?? "",
+    // Joined from the static index so the client can glide along real geometry
+    // without downloading 128k trips itself.
+    ...(entry?.[1] ? { h: entry[1] } : {}),
+    ...(entry?.[2] ? { d: entry[2] } : {}),
   };
 }
 

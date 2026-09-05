@@ -1,0 +1,166 @@
+import { describe, expect, it } from "vitest";
+import { BusField, type Snapshot, type WireVehicle } from "./buses.js";
+import { buildTrack, type LatLon } from "./geo.js";
+
+const northLine: LatLon[] = [
+  [49.28, -123.12],
+  [49.29, -123.12],
+  [49.3, -123.12],
+];
+
+/** An L-shaped route: north then east, so a straight tween would cut the corner. */
+const cornerLine: LatLon[] = [
+  [49.28, -123.12],
+  [49.285, -123.12],
+  [49.285, -123.113],
+];
+
+const vehicle = (over: Partial<WireVehicle> = {}): WireVehicle => ({
+  i: "bus1",
+  r: "route1",
+  t: "trip1",
+  y: 49.28,
+  x: -123.12,
+  s: 1,
+  p: "stop1",
+  ...over,
+});
+
+const snapshot = (vehicles: WireVehicle[], pollSeconds = 90): Snapshot => ({
+  type: "snapshot",
+  generatedAt: 0,
+  feedTimestamp: null,
+  pollSeconds,
+  vehicles,
+});
+
+const noTracks = () => null;
+const alwaysTrack = (points: LatLon[]) => () => buildTrack(points);
+
+describe("BusField", () => {
+  it("places a bus at its reported position on the first snapshot", () => {
+    const field = new BusField(noTracks);
+    field.ingest(snapshot([vehicle()]), 1000);
+
+    const [bus] = field.positionsAt(1000);
+    expect(bus!.lat).toBeCloseTo(49.28, 6);
+    expect(bus!.lon).toBeCloseTo(-123.12, 6);
+  });
+
+  it("tracks several buses at once", () => {
+    const field = new BusField(noTracks);
+    field.ingest(snapshot([vehicle({ i: "a" }), vehicle({ i: "b" }), vehicle({ i: "c" })]), 0);
+    expect(field.size).toBe(3);
+    expect(field.positionsAt(0)).toHaveLength(3);
+  });
+
+  describe("without geometry", () => {
+    it("glides in a straight line between samples", () => {
+      const field = new BusField(noTracks);
+      field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
+      field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
+
+      const halfway = field.positionsAt(1000 + 45_000)[0]!;
+      expect(halfway.lat).toBeCloseTo(49.29, 4);
+    });
+
+    it("arrives exactly at the target by the end of the interval", () => {
+      const field = new BusField(noTracks);
+      field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
+      field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
+
+      expect(field.positionsAt(1000 + 90_000)[0]!.lat).toBeCloseTo(49.3, 6);
+    });
+
+    it("stops at the target rather than overshooting when a snapshot is late", () => {
+      const field = new BusField(noTracks);
+      field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
+      field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
+
+      const late = field.positionsAt(1000 + 300_000)[0]!;
+      expect(late.lat).toBeCloseTo(49.3, 6);
+      expect(late.moving).toBe(false);
+    });
+  });
+
+  describe("with route geometry", () => {
+    it("follows the corner instead of cutting across it", () => {
+      const field = new BusField(alwaysTrack(cornerLine));
+      field.ingest(snapshot([vehicle({ y: 49.28, x: -123.12 })]), 0);
+      field.ingest(snapshot([vehicle({ y: 49.285, x: -123.113 })]), 1000);
+
+      // Halfway by distance along an L sits near the elbow, well off the
+      // straight line between the endpoints.
+      const mid = field.positionsAt(1000 + 45_000)[0]!;
+      const diagonalLat = (49.28 + 49.285) / 2;
+      const diagonalLon = (-123.12 + -123.113) / 2;
+      const offDiagonal = Math.hypot(mid.lat - diagonalLat, mid.lon - diagonalLon);
+      expect(offDiagonal).toBeGreaterThan(0.001);
+    });
+
+    it("derives a heading, since TransLink sends none", () => {
+      const field = new BusField(alwaysTrack(northLine));
+      field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
+      field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
+
+      expect(field.positionsAt(1000 + 45_000)[0]!.bearing).toBeCloseTo(0, 0);
+    });
+
+    it("faces backwards when the bus runs against the shape direction", () => {
+      const field = new BusField(alwaysTrack(northLine));
+      field.ingest(snapshot([vehicle({ y: 49.3 })]), 0);
+      field.ingest(snapshot([vehicle({ y: 49.28 })]), 1000);
+
+      expect(field.positionsAt(1000 + 45_000)[0]!.bearing).toBeCloseTo(180, 0);
+    });
+
+    it("falls back to a straight line when projection implies an impossible jump", () => {
+      // Two points 20km apart cannot be one 90-second hop; snapping to a
+      // doubled-back leg would teleport the bus.
+      const field = new BusField(alwaysTrack(northLine));
+      field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
+      field.ingest(snapshot([vehicle({ y: 49.5, x: -123.12 })]), 1000);
+
+      const mid = field.positionsAt(1000 + 45_000)[0]!;
+      expect(mid.lat).toBeGreaterThan(49.28);
+      expect(mid.lat).toBeLessThan(49.5);
+    });
+  });
+
+  it("resumes from where a bus is drawn, not from the last sample", () => {
+    // A snapshot arriving mid-glide must not snap the bus backwards.
+    const field = new BusField(noTracks);
+    field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
+    field.ingest(snapshot([vehicle({ y: 49.3 })]), 0);
+
+    const atQuarter = field.positionsAt(22_500)[0]!.lat;
+    field.ingest(snapshot([vehicle({ y: 49.32 })]), 22_500);
+    const justAfter = field.positionsAt(22_600)[0]!.lat;
+
+    expect(justAfter).toBeGreaterThanOrEqual(atQuarter - 1e-6);
+  });
+
+  it("forgets a bus that stops reporting", () => {
+    const field = new BusField(noTracks);
+    field.ingest(snapshot([vehicle({ i: "gone" }), vehicle({ i: "stays" })]), 0);
+    expect(field.size).toBe(2);
+
+    // Seven minutes later, only one bus is still in the feed.
+    field.ingest(snapshot([vehicle({ i: "stays" })]), 7 * 60_000);
+    expect(field.size).toBe(1);
+    expect(field.positionsAt(7 * 60_000)[0]!.id).toBe("stays");
+  });
+
+  it("keeps a bus that is merely quiet for one poll", () => {
+    const field = new BusField(noTracks);
+    field.ingest(snapshot([vehicle({ i: "a" }), vehicle({ i: "b" })]), 0);
+    field.ingest(snapshot([vehicle({ i: "a" })]), 90_000);
+    expect(field.size).toBe(2);
+  });
+
+  it("survives an empty snapshot without throwing", () => {
+    const field = new BusField(noTracks);
+    expect(() => field.ingest(snapshot([]), 0)).not.toThrow();
+    expect(field.positionsAt(0)).toEqual([]);
+  });
+});
