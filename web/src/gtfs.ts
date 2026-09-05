@@ -44,25 +44,41 @@ export class GtfsData {
   routes = new Map<string, RouteInfo>();
   stops: StopInfo[] = [];
   private stopById = new Map<string, StopInfo>();
+  private stopLoad: Promise<void> | null = null;
 
   /** shapeId -> track, filled in as routes are requested. */
   private tracks = new Map<string, Track>();
   /** routeId -> in-flight or completed load, so we fetch each bundle once. */
   private routeLoads = new Map<string, Promise<void>>();
 
+  /**
+   * Fetch only what the first paint needs.
+   *
+   * routes.json is 3.7KB over the wire; stops.json is 202KB and is not needed
+   * until the user zooms in far enough to see stops. Blocking the map on it
+   * costs a third of the initial download for something most sessions never
+   * look at, so it loads in the background instead.
+   */
   async load(): Promise<Manifest> {
     const manifest = (await getJson("/api/gtfs/manifest")) as Manifest;
     this.version = manifest.version;
 
-    const [routes, stops] = await Promise.all([
-      getJson(this.url("routes.json")) as Promise<Record<string, RouteInfo>>,
-      getJson(this.url("stops.json")) as Promise<StopInfo[]>,
-    ]);
-
+    const routes = (await getJson(this.url("routes.json"))) as Record<string, RouteInfo>;
     this.routes = new Map(Object.entries(routes));
-    this.stops = stops;
-    this.stopById = new Map(stops.map((stop) => [stop.i, stop]));
     return manifest;
+  }
+
+  /** Load the stop index. Safe to call repeatedly; the first call wins. */
+  ensureStops(): Promise<void> {
+    if (this.stopLoad) return this.stopLoad;
+
+    this.stopLoad = (async () => {
+      const stops = (await getJson(this.url("stops.json"))) as StopInfo[];
+      this.stops = stops;
+      this.stopById = new Map(stops.map((stop) => [stop.i, stop]));
+    })();
+
+    return this.stopLoad;
   }
 
   /** Geometry for a trip, if its route bundle has been loaded. */

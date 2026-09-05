@@ -319,11 +319,16 @@ export function BusMap({
         return shapeId ? gtfs.trackFor(shapeId) : null;
       });
 
-      addStopsLayer(gtfs);
       onReadyRef.current(gtfs);
       setReady(true);
       connect();
       animate();
+
+      // 202KB that only matters from zoom 14. Fetch it once the map is up so
+      // it never delays the first paint.
+      void gtfs.ensureStops().then(() => {
+        if (!stopped) addStopsLayer(gtfs);
+      });
     }
 
     function connect(): void {
