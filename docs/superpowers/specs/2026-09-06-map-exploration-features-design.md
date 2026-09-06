@@ -45,7 +45,15 @@ be distinguished by hue alone.
   new Durable Object storage, a new R2 write path, a retention policy and a
   payload-scoping decision. Recorded in "Deferred work" below so the reasoning
   is not lost.
-- **Live road traffic.** Still an open question — see "Open questions".
+- **Live road traffic.** Still an open question. The cheapest possible answer —
+  that TransLink already sends a speed or congestion field — was probed and
+  ruled out (see "Open questions"). What remains is either an external traffic
+  provider, or deriving congestion from the buses themselves. The second is
+  more tractable here than it looks: `projectOntoTrack` (`web/src/geo.ts`)
+  already converts a position into a distance along the route polyline, so two
+  consecutive samples give a true along-route speed rather than a straight-line
+  approximation that would be wrong on every curve. That is the hard part of a
+  transit-probe congestion estimate, and it is already written.
 - **A full stop ladder for ride-along.** The static schedule artifacts are keyed
   by stop (`sched/{stop}.json`), not by trip, so the ordered stop list for a trip
   is not available on the client. Serving one would need a new GTFS artifact,
@@ -229,12 +237,14 @@ trusted.
 
 ## Open questions
 
-- **Does TransLink populate `Position.speed` (field 5) or
-  `VehiclePosition.congestion_level` (field 6)?** `src/gtfs-rt.ts` decodes
-  neither; it reads only `bearing` out of `Position` (`src/gtfs-rt.ts:283`). The
-  README documents that bearing and occupancy come back empty, but these two
-  were never checked. If either is populated it is free congestion data already
-  being paid for and discarded. A probe is pending.
+- ~~Does TransLink populate `Position.speed` or
+  `VehiclePosition.congestion_level`?~~ **Answered 2026-09-06: no.** A probe of
+  one live `gtfsposition` payload (579 vehicles) found `Position` carries only
+  `latitude` and `longitude` — no `speed`, no `bearing`, no `odometer` — and
+  `VehiclePosition` carries no `congestion_level` and no `occupancy_status`.
+  `src/gtfs-rt.ts` is therefore not leaving anything on the table. The README
+  should be extended: it currently records bearing and occupancy as unpopulated,
+  and speed and congestion level belong in the same sentence.
 - **Which Cloudflare plan is this Worker on?** Not answerable from
   `wrangler whoami`, and not inferable from Durable Object use, since
   SQLite-backed Durable Objects are available on the free plan. Only matters if
