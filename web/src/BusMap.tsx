@@ -271,8 +271,11 @@ export function BusMap({
 
       bindInteractions();
 
-      // After a theme swap the map is already running; re-add stops directly.
+      // After a theme swap the map is already running; re-add stops and
+      // bus icons directly, since setStyle discarded both along with the
+      // layers.
       const existing = gtfsRef.current;
+      if (existing) registerBusIcons(existing);
       if (existing && existing.stops.length > 0) addStopsLayer(existing);
 
       if (!fieldRef.current) void start();
@@ -311,6 +314,28 @@ export function BusMap({
       map.on("mouseleave", "bus-icons", () => {
         map.getCanvas().style.cursor = "";
       });
+    }
+
+    /**
+     * Register one bus-icon image per shape per colour, so animate() can name
+     * an icon per bus with no per-frame work. The set is small — TransLink
+     * colours only 12 routes.
+     *
+     * Called from both start() and style.load. setStyle() throws away every
+     * image added with addImage, exactly as it throws away every layer, so a
+     * theme swap needs this re-run just as the style.load handler re-adds
+     * stops — do not collapse this back down to a single call from start().
+     */
+    function registerBusIcons(gtfs: GtfsData): void {
+      const ratio = Math.min(2, Math.max(1, Math.round(window.devicePixelRatio || 1)));
+      for (const color of distinctRouteColors(gtfs.routes, DEFAULT_ROUTE_COLOR)) {
+        for (const shape of ["chevron", "bus"] as const) {
+          const name = iconName(shape, color);
+          if (!map.hasImage(name)) {
+            map.addImage(name, drawMarker(shape, color, ratio), { pixelRatio: ratio });
+          }
+        }
+      }
     }
 
     /**
@@ -414,18 +439,7 @@ export function BusMap({
       }
       if (stopped) return;
 
-      // Register one image per shape per colour. The set is small — TransLink
-      // colours only 12 routes — and doing it once here means animate() can
-      // name an icon per bus with no per-frame work.
-      const ratio = Math.min(2, Math.max(1, Math.round(window.devicePixelRatio || 1)));
-      for (const color of distinctRouteColors(gtfs.routes, DEFAULT_ROUTE_COLOR)) {
-        for (const shape of ["chevron", "bus"] as const) {
-          const name = iconName(shape, color);
-          if (!map.hasImage(name)) {
-            map.addImage(name, drawMarker(shape, color, ratio), { pixelRatio: ratio });
-          }
-        }
-      }
+      registerBusIcons(gtfs);
 
       fieldRef.current = new BusField((tripId) => {
         const shapeId = tripShapes.current.get(tripId);
