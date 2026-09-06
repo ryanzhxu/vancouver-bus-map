@@ -12,3 +12,6 @@ dist/
 *.zip
 web/dist/
 web/node_modules/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
