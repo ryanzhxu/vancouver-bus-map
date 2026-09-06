@@ -491,6 +491,16 @@ body {
   color: var(--ok);
 }
 
+/* A live arrival five or more minutes behind schedule is painted in the warning
+   colour, not the on-time green, so a late bus stands out in the stop list
+   without a tap — the same flag the bus card's Schedule row and the map halo
+   use. --warn clears 4.5:1 on the card surface in both themes (6.39:1 light,
+   8.18:1 dark). An on-time, early, or delay-unknown live arrival stays green. */
+.arrival-kind.live.late {
+  color: var(--warn);
+  font-weight: 600;
+}
+
 .arrival-kind.sched {
   color: var(--ink-3);
 }

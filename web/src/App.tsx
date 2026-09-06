@@ -223,7 +223,11 @@ function StopCard({
                 {gtfs ? gtfs.routeLabel(arrival.routeId) : arrival.routeId}
               </span>
               <span className="arrival-when">{countdown(arrival.time)}</span>
-              <span className={`arrival-kind ${arrival.live ? "live" : "sched"}`}>
+              <span
+                className={`arrival-kind ${
+                  arrival.live ? (isLate(arrival.delay) ? "live late" : "live") : "sched"
+                }`}
+              >
                 {arrival.live ? describeDelay(arrival.delay) : "scheduled"}
               </span>
             </li>
