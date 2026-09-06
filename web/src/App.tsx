@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { BusMap, type FeedState, type SelectedBus, type SelectedStop } from "./BusMap.js";
-import { describeDelay, hintText, isLate } from "./buses.js";
+import { describeDelay, hasDeparted, hintText, isLate } from "./buses.js";
 import type { GtfsData } from "./gtfs.js";
 
 /** Matches the stop layer's minzoom in BusMap. */
@@ -211,6 +211,11 @@ function StopCard({
     };
   }, [stop.id]);
 
+  // Drop rows the bus has already left by, re-checked on every one-second tick,
+  // so a departure never lingers as "now" past the server's freshness window.
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const visible = arrivals?.filter((arrival) => !hasDeparted(arrival.time, nowSeconds)) ?? null;
+
   return (
     <div className="buscard stopcard" role="dialog" aria-label={stop.name}>
       <div className="buscard-head">
@@ -238,13 +243,13 @@ function StopCard({
 
       {error && <p className="arrivals-empty">{error}</p>}
       {!error && arrivals === null && <p className="arrivals-empty">Loading arrivals…</p>}
-      {!error && arrivals?.length === 0 && (
+      {!error && visible !== null && visible.length === 0 && (
         <p className="arrivals-empty">Nothing scheduled from here right now.</p>
       )}
 
-      {arrivals && arrivals.length > 0 && (
+      {visible && visible.length > 0 && (
         <ul className="arrivals">
-          {arrivals.map((arrival) => (
+          {visible.map((arrival) => (
             <li key={arrival.tripId}>
               <span className="arrival-route">
                 {gtfs ? gtfs.routeLabel(arrival.routeId) : arrival.routeId}

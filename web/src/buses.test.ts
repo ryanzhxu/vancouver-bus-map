@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   BusField,
+  DEPARTED_SLACK_SECONDS,
   describeDelay,
+  hasDeparted,
   hintText,
   isLate,
   LATE_THRESHOLD_SECONDS,
@@ -252,6 +254,25 @@ describe("describeDelay", () => {
       const labelledFivePlus = /^([5-9]|\d\d+) min late$/.test(describeDelay(delay));
       expect(labelledFivePlus).toBe(isLate(delay));
     }
+  });
+});
+
+describe("hasDeparted", () => {
+  const now = 1_700_000_000;
+
+  it("keeps a future or arriving-now departure", () => {
+    expect(hasDeparted(now + 300, now)).toBe(false);
+    expect(hasDeparted(now, now)).toBe(false);
+  });
+
+  it("keeps a bus within the just-left slack, matching the server", () => {
+    // mergeArrivals keeps time >= now - 60, so the slack edge must still show.
+    expect(hasDeparted(now - DEPARTED_SLACK_SECONDS, now)).toBe(false);
+  });
+
+  it("drops a bus past the slack instead of reading 'now' forever", () => {
+    expect(hasDeparted(now - DEPARTED_SLACK_SECONDS - 1, now)).toBe(true);
+    expect(hasDeparted(now - 150, now)).toBe(true);
   });
 });
 
