@@ -24,6 +24,13 @@ describe("vancouverDate", () => {
   it("steps back a day on request", () => {
     expect(vancouverDate(new Date("2026-09-06T20:00:00Z"), -1)).toBe("20260905");
   });
+
+  it("steps back across the spring-forward boundary", () => {
+    // DST begins 2026-03-08, a 23-hour day. Just after midnight on the 9th,
+    // yesterday is still the 8th — not the 7th, which a fixed 24-hour shift
+    // would land on because the 8th was an hour short.
+    expect(vancouverDate(new Date("2026-03-09T07:30:00Z"), -1)).toBe("20260308");
+  });
 });
 
 describe("vancouverSeconds", () => {

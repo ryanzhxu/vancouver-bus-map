@@ -36,16 +36,24 @@ const DAY_SECONDS = 86_400;
 
 /** Vancouver-local date as YYYYMMDD. */
 export function vancouverDate(now: Date, offsetDays = 0): string {
-  const shifted = new Date(now.getTime() + offsetDays * DAY_SECONDS * 1000);
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Vancouver",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(shifted);
+  }).formatToParts(now);
 
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  return `${get("year")}${get("month")}${get("day")}`;
+  if (offsetDays === 0) return `${get("year")}${get("month")}${get("day")}`;
+
+  // Apply the offset as calendar arithmetic, not an instant shift: a day either
+  // side of a clock change is 23 or 25 hours long, so shifting by a fixed 24
+  // hours can land on the wrong local date.
+  const shifted = new Date(
+    Date.UTC(Number(get("year")), Number(get("month")) - 1, Number(get("day")) + offsetDays),
+  );
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${shifted.getUTCFullYear()}${pad(shifted.getUTCMonth() + 1)}${pad(shifted.getUTCDate())}`;
 }
 
 /** Seconds since Vancouver-local midnight. */
