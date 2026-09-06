@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { BusMap, type FeedState, type SelectedBus, type SelectedStop } from "./BusMap.js";
-import { isLate } from "./buses.js";
+import { describeDelay, isLate } from "./buses.js";
 import type { GtfsData } from "./gtfs.js";
 
 /** Matches the stop layer's minzoom in BusMap. */
@@ -290,14 +290,6 @@ function describeArrival(epochSeconds: number): string {
   if (when === "now") return "arriving now";
   if (when.endsWith("min")) return `arriving in ${when}`;
   return `arriving at ${when}`;
-}
-
-function describeDelay(delay: number | null): string {
-  if (delay === null) return "live";
-  const minutes = Math.round(delay / 60);
-  if (minutes <= -1) return `${Math.abs(minutes)} min early`;
-  if (minutes >= 1) return `${minutes} min late`;
-  return "on time";
 }
 
 function StatusPill({ feed }: { feed: FeedState }) {
