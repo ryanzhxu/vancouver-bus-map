@@ -11,6 +11,7 @@ const calendar: CalendarData = {
   services: {
     saturday: { days: [0, 0, 0, 0, 0, 0, 1], from: "20260101", to: "20261231" },
     weekday: { days: [0, 1, 1, 1, 1, 1, 0], from: "20260101", to: "20261231" },
+    nightly: { days: [1, 1, 1, 1, 1, 1, 1], from: "20260101", to: "20261231" },
   },
   exceptions: {},
 };
@@ -172,6 +173,29 @@ describe("mergeArrivals", () => {
     const lateNight = new Date("2026-09-06T07:30:00Z");
     const result = mergeArrivals({
       schedule: schedule([[0, 0, at(24, 45), "owl"]]),
+      predictions: [],
+      calendar,
+      now: lateNight,
+    });
+
+    expect(result.map((a) => a.tripId)).toEqual(["owl"]);
+    expect(result[0]!.time).toBe(epochFor("20260905", at(24, 45)));
+  });
+
+  it("shows tonight's post-midnight run of a daily trip, not tomorrow's", () => {
+    // 00:30 Sunday. A nightly owl departs at 24:45 and its service runs every
+    // day, so the same trip is scheduled on both Saturday's service day (arriving
+    // Sunday 00:45, 15 minutes out) and Sunday's (a full day out). Deduping by
+    // trip id alone kept whichever window was processed first — today's — and hid
+    // tonight's arriving-now run behind tomorrow's. The rider must see tonight's.
+    const lateNight = new Date("2026-09-06T07:30:00Z");
+    const nightly: StopSchedule = {
+      r: ["route-n9"],
+      s: ["nightly"],
+      d: [[0, 0, at(24, 45), "owl"]],
+    };
+    const result = mergeArrivals({
+      schedule: nightly,
       predictions: [],
       calendar,
       now: lateNight,
