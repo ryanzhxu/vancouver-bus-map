@@ -1,6 +1,6 @@
 import maplibregl from "maplibre-gl";
 import { useEffect, useRef, useState } from "react";
-import { BusField, type Snapshot } from "./buses.js";
+import { BusField, isLate, type Snapshot } from "./buses.js";
 import { GtfsData } from "./gtfs.js";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -12,6 +12,13 @@ const BOUNDS: [number, number, number, number] = [-123.55, 48.95, -122.4, 49.45]
 const BASEMAP_LIGHT = "https://tiles.openfreemap.org/styles/positron";
 const BASEMAP_DARK = "https://tiles.openfreemap.org/styles/dark";
 
+/**
+ * The halo drawn around a bus running behind schedule. One warm orange reads on
+ * both the light and the dark basemap, and it is distinct from the blue halo of
+ * a selected bus. Kept in step with the --late token the legend swatch uses.
+ */
+const LATE_COLOR = "#e8590c";
+
 const darkQuery =
   typeof window !== "undefined" && window.matchMedia
     ? window.matchMedia("(prefers-color-scheme: dark)")
@@ -21,7 +28,7 @@ const basemapFor = (dark: boolean) => (dark ? BASEMAP_DARK : BASEMAP_LIGHT);
 
 export type FeedState =
   | { kind: "connecting" }
-  | { kind: "live"; buses: number; feedTime: number | null }
+  | { kind: "live"; buses: number; late: number; feedTime: number | null }
   /** Static timetables work; the realtime feed does not. */
   | { kind: "schedules-only" }
   | { kind: "error"; message: string };
@@ -44,6 +51,8 @@ export interface SelectedBus {
   color: string;
   /** Predicted arrival at the next stop, epoch seconds, or null when unknown. */
   arrivalTime: number | null;
+  /** Delay against schedule in seconds; negative is early, null is unknown. */
+  delay: number | null;
 }
 
 export function BusMap({
@@ -79,7 +88,7 @@ export function BusMap({
   onZoomRef.current = onZoom;
   /** Latest wire record per bus, for the detail sheet. */
   const wireById = useRef(
-    new Map<string, { r: string; d?: string; p: string; s: number; a?: number }>(),
+    new Map<string, { r: string; d?: string; p: string; s: number; a?: number; l?: number }>(),
   );
   const selectedId = useRef<string | null>(null);
 
@@ -177,6 +186,23 @@ export function BusMap({
           "circle-opacity": 0.92,
         },
       });
+
+      // A warm ring around any bus more than five minutes behind schedule, so a
+      // rider sees which buses are late without tapping. Drawn beneath the dots
+      // so it reads as a halo; the status bar names the five-minute threshold.
+      map.addLayer({
+        id: "bus-late",
+        type: "circle",
+        source: "buses",
+        filter: ["==", ["get", "late"], true],
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 5, 12, 7.5, 15, 12],
+          "circle-color": LATE_COLOR,
+          "circle-opacity": 0.28,
+          "circle-stroke-width": 2,
+          "circle-stroke-color": LATE_COLOR,
+        },
+      }, "bus-dots");
 
       // Drawn beneath the dots so the ring reads as a halo, not a badge.
       map.addLayer({
@@ -339,6 +365,7 @@ export function BusMap({
         stopSequence: wire.s,
         color: gtfs.routeColor(wire.r),
         arrivalTime: wire.a ?? null,
+        delay: wire.l ?? null,
       });
     }
 
@@ -435,7 +462,7 @@ export function BusMap({
       for (const v of snapshot.vehicles) {
         if (v.r) routes.add(v.r);
         if (v.h) tripShapes.current.set(v.t, v.h);
-        wireById.current.set(v.i, { r: v.r, d: v.d, p: v.p, s: v.s, a: v.a });
+        wireById.current.set(v.i, { r: v.r, d: v.d, p: v.p, s: v.s, a: v.a, l: v.l });
       }
       for (const routeId of routes) void gtfs.ensureRoute(routeId);
 
@@ -445,6 +472,7 @@ export function BusMap({
       onStateRef.current({
         kind: "live",
         buses: snapshot.vehicles.length,
+        late: snapshot.vehicles.filter((v) => isLate(v.l)).length,
         feedTime: snapshot.feedTimestamp,
       });
     }
@@ -465,6 +493,7 @@ export function BusMap({
           label: gtfs.routeLabel(bus.routeId),
           color: gtfs.routeColor(bus.routeId),
           bearing: bus.bearing,
+          late: isLate(bus.delay),
         },
       }));
 

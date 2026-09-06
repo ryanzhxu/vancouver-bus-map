@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { BusMap, type FeedState, type SelectedBus, type SelectedStop } from "./BusMap.js";
+import { isLate } from "./buses.js";
 import type { GtfsData } from "./gtfs.js";
 
 /** Matches the stop layer's minzoom in BusMap. */
@@ -102,6 +103,16 @@ function BusCard({ bus, onClose }: { bus: SelectedBus; onClose: () => void }) {
             )}
           </dd>
         </div>
+        {bus.delay !== null && (
+          <div>
+            <dt>Schedule</dt>
+            <dd>
+              <span className={isLate(bus.delay) ? "delay late" : "delay"}>
+                {describeDelay(bus.delay)}
+              </span>
+            </dd>
+          </div>
+        )}
         <div>
           <dt>Stop number</dt>
           <dd>{bus.stopSequence || "—"}</dd>
@@ -268,6 +279,12 @@ function StatusPill({ feed }: { feed: FeedState }) {
         <span className="dot live" aria-hidden="true" />
         <strong>{feed.buses}</strong> buses
         <span className="age">{describeAge(feed.feedTime)}</span>
+        {feed.late > 0 && (
+          <span className="late-note">
+            <span className="dot late" aria-hidden="true" />
+            <strong>{feed.late}</strong> 5+ min late
+          </span>
+        )}
       </div>
     );
   }

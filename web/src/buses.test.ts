@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { BusField, type Snapshot, type WireVehicle } from "./buses.js";
+import {
+  BusField,
+  isLate,
+  LATE_THRESHOLD_SECONDS,
+  type Snapshot,
+  type WireVehicle,
+} from "./buses.js";
 import { buildTrack, type LatLon } from "./geo.js";
 
 const northLine: LatLon[] = [
@@ -162,5 +168,35 @@ describe("BusField", () => {
     const field = new BusField(noTracks);
     expect(() => field.ingest(snapshot([]), 0)).not.toThrow();
     expect(field.positionsAt(0)).toEqual([]);
+  });
+
+  it("carries each bus's delay through to the rendered position", () => {
+    const field = new BusField(noTracks);
+    field.ingest(snapshot([vehicle({ i: "behind", l: 420 }), vehicle({ i: "unknown" })]), 0);
+
+    const byId = new Map(field.positionsAt(0).map((b) => [b.id, b.delay]));
+    // A reported delay reaches the map so the late flag can read it.
+    expect(byId.get("behind")).toBe(420);
+    // No delay on the wire stays null, never a fabricated on-time reading.
+    expect(byId.get("unknown")).toBeNull();
+  });
+});
+
+describe("isLate", () => {
+  it("flags a bus at or past the threshold", () => {
+    expect(isLate(LATE_THRESHOLD_SECONDS)).toBe(true);
+    expect(isLate(LATE_THRESHOLD_SECONDS + 60)).toBe(true);
+  });
+
+  it("does not flag a bus only slightly behind", () => {
+    // The exact case AUTOPILOT calls out: 40 seconds down is not "late".
+    expect(isLate(40)).toBe(false);
+    expect(isLate(LATE_THRESHOLD_SECONDS - 1)).toBe(false);
+  });
+
+  it("does not flag an early bus or one with no reading", () => {
+    expect(isLate(-300)).toBe(false);
+    expect(isLate(null)).toBe(false);
+    expect(isLate(undefined)).toBe(false);
   });
 });
