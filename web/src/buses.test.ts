@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BusField,
+  describeDelay,
   isLate,
   LATE_THRESHOLD_SECONDS,
   type Snapshot,
@@ -226,5 +227,29 @@ describe("isLate", () => {
     expect(isLate(-300)).toBe(false);
     expect(isLate(null)).toBe(false);
     expect(isLate(undefined)).toBe(false);
+  });
+});
+
+describe("describeDelay", () => {
+  it("reports lateness and earliness", () => {
+    expect(describeDelay(null)).toBe("live");
+    expect(describeDelay(300)).toBe("5 min late");
+    expect(describeDelay(-180)).toBe("3 min early");
+  });
+
+  it("calls a sub-minute delay on time, per AUTOPILOT's 40-second example", () => {
+    expect(describeDelay(40)).toBe("on time");
+    expect(describeDelay(-40)).toBe("on time");
+    expect(describeDelay(0)).toBe("on time");
+  });
+
+  it("never labels a bus '5 min late' unless the map would flag it", () => {
+    // The card and the map must agree: a bus the label calls "5 min late"
+    // must be one isLate() flags, or the status bar's "5+ min late" count and
+    // the map halo silently exclude a bus the rider was just told is 5 min late.
+    for (let delay = 0; delay <= 900; delay += 5) {
+      const labelledFivePlus = /^([5-9]|\d\d+) min late$/.test(describeDelay(delay));
+      expect(labelledFivePlus).toBe(isLate(delay));
+    }
   });
 });

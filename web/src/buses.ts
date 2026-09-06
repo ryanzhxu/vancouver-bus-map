@@ -64,6 +64,26 @@ export function isLate(delay: number | null | undefined): boolean {
   return delay != null && delay >= LATE_THRESHOLD_SECONDS;
 }
 
+/**
+ * In words how far a bus is off schedule, e.g. "5 min late", "2 min early".
+ *
+ * The figure is completed minutes (truncated toward zero), not rounded, for two
+ * reasons. First, "N min late" must agree with the map flag: isLate() fires at
+ * LATE_THRESHOLD_SECONDS (5 min exactly), so rounding would let a bus 4.5 min
+ * behind read "5 min late" on the card while the map halo and the status bar's
+ * "5+ min late" count silently excluded it. Truncating makes "5 min late" mean
+ * delay >= 300, matching the flag. Second, a sub-minute delay reads "on time",
+ * per AUTOPILOT's own example that "a bus 40 seconds down is not late" — where
+ * rounding would have called a 40-second bus "1 min late".
+ */
+export function describeDelay(delay: number | null): string {
+  if (delay === null) return "live";
+  const minutes = Math.trunc(delay / 60);
+  if (minutes <= -1) return `${Math.abs(minutes)} min early`;
+  if (minutes >= 1) return `${minutes} min late`;
+  return "on time";
+}
+
 interface BusState {
   id: string;
   routeId: string;
