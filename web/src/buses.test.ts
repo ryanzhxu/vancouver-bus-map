@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  arrivalsErrorText,
   BusField,
   DEPARTED_SLACK_SECONDS,
   describeAge,
@@ -379,5 +380,20 @@ describe("isFeedStale", () => {
     // "connecting" and "schedules-only" own the no-timestamp case, not "live".
     expect(isFeedStale(null, now)).toBe(false);
     expect(isFeedStale(0, now)).toBe(false);
+  });
+});
+
+describe("arrivalsErrorText", () => {
+  it("tells an offline rider to check the connection, not a raw fetch error", () => {
+    const text = arrivalsErrorText("offline");
+    expect(text).toBe("Cannot reach the network. Check your connection.");
+    // Never leak the developer-facing cause to a rider.
+    expect(text).not.toMatch(/fetch|responded|\d{3}/);
+  });
+
+  it("tells a rider a server failure is temporary, not a broken stop", () => {
+    const text = arrivalsErrorText("unavailable");
+    expect(text).toBe("Arrivals are unavailable right now. Try again shortly.");
+    expect(text).not.toMatch(/fetch|responded|\d{3}/);
   });
 });
