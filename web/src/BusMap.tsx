@@ -74,6 +74,8 @@ export function BusMap({
   onZoom,
   onSnapshot,
   highlight,
+  followId,
+  onStopFollowing,
 }: {
   onState: (state: FeedState) => void;
   onSelect: (bus: SelectedBus | null) => void;
@@ -82,6 +84,8 @@ export function BusMap({
   onZoom: (zoom: number) => void;
   onSnapshot: (vehicles: WireVehicle[]) => void;
   highlight: Highlight;
+  followId: string | null;
+  onStopFollowing: () => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
@@ -105,6 +109,10 @@ export function BusMap({
   onSnapshotRef.current = onSnapshot;
   const highlightRef = useRef(highlight);
   highlightRef.current = highlight;
+  const followRef = useRef(followId);
+  followRef.current = followId;
+  const onStopFollowingRef = useRef(onStopFollowing);
+  onStopFollowingRef.current = onStopFollowing;
   /** Latest wire record per bus, for the detail sheet. */
   const wireById = useRef(
     new Map<string, { r: string; d?: string; p: string; s: number; a?: number; l?: number }>(),
@@ -364,6 +372,12 @@ export function BusMap({
       map.on("mouseleave", "bus-icons", () => {
         map.getCanvas().style.cursor = "";
       });
+
+      // Panning is an unambiguous request to look somewhere else. Without this
+      // the camera would drag the map back on the next frame.
+      map.on("dragstart", () => {
+        if (followRef.current) onStopFollowingRef.current();
+      });
     }
 
     /**
@@ -603,7 +617,11 @@ export function BusMap({
       // run down on the client clock and sit at "arriving now" for good, beside
       // a dot the rider can no longer see.
       if (selectedId.current) {
-        select(field.has(selectedId.current) ? selectedId.current : undefined);
+        const stillHere = field.has(selectedId.current);
+        select(stillHere ? selectedId.current : undefined);
+        // A bus that has ended its trip will never move again. Following it
+        // would pin the camera to a corner of the map for good.
+        if (!stillHere && followRef.current) onStopFollowingRef.current();
       }
     }
 
@@ -618,7 +636,8 @@ export function BusMap({
       // Read the preference live each frame so toggling it in the OS takes
       // effect without a reload; the check is a cheap boolean.
       const glide = !(reduceMotionQuery?.matches ?? false);
-      const features = field.positionsAt(Date.now(), glide).map((bus) => {
+      const positions = field.positionsAt(Date.now(), glide);
+      const features = positions.map((bus) => {
         const label = gtfs.routeLabel(bus.routeId);
         const color = gtfs.routeColor(bus.routeId);
         const express = isExpress(label);
@@ -639,6 +658,14 @@ export function BusMap({
       });
 
       source.setData({ type: "FeatureCollection", features });
+
+      // Follow the selected bus. setCenter, not easeTo: an eased camera has its
+      // own animation clock and would fight a target that moves every frame.
+      const following = followRef.current;
+      if (following) {
+        const bus = positions.find((b) => b.id === following);
+        if (bus) map.setCenter([bus.lon, bus.lat]);
+      }
     }
 
     return () => {

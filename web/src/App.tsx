@@ -43,6 +43,7 @@ export function App() {
   const [route, setRoute] = useState<RouteMatch | null>(null);
   const [expressOnly, setExpressOnly] = useState(false);
   const [vehicles, setVehicles] = useState<WireVehicle[]>([]);
+  const [followId, setFollowId] = useState<string | null>(null);
 
   const highlight: Highlight = { routeId: route?.routeId ?? null, expressOnly };
 
@@ -50,12 +51,23 @@ export function App() {
     <div className="app">
       <BusMap
         onState={setFeed}
-        onSelect={setBus}
+        onSelect={(next) => {
+          setBus(next);
+          // Tapping a stop, empty map, or a different bus reaches here too, and
+          // none of those go through BusCard's onClose. Without this, following
+          // would keep re-centring on a bus whose card is no longer on screen.
+          // apply() also re-invokes this on every snapshot to refresh the open
+          // card with the same bus, so only clear when the selection actually
+          // changed away from the one being followed.
+          if (!next || next.id !== followId) setFollowId(null);
+        }}
         onSelectStop={setStop}
         onReady={setGtfs}
         onZoom={setZoom}
         onSnapshot={setVehicles}
         highlight={highlight}
+        followId={followId}
+        onStopFollowing={() => setFollowId(null)}
       />
 
       <RouteSearch
@@ -69,7 +81,17 @@ export function App() {
 
       {!bus && !stop && <Hint feed={feed} zoom={zoom} />}
 
-      {bus && <BusCard bus={bus} onClose={() => setBus(null)} />}
+      {bus && (
+        <BusCard
+          bus={bus}
+          following={followId === bus.id}
+          onToggleFollow={() => setFollowId((id) => (id === bus.id ? null : bus.id))}
+          onClose={() => {
+            setFollowId(null);
+            setBus(null);
+          }}
+        />
+      )}
       {stop && <StopCard stop={stop} gtfs={gtfs} onClose={() => setStop(null)} />}
 
       <div className="statusbar">
@@ -106,7 +128,17 @@ function useEscapeToClose(onClose: () => void): void {
   }, [onClose]);
 }
 
-function BusCard({ bus, onClose }: { bus: SelectedBus; onClose: () => void }) {
+function BusCard({
+  bus,
+  following,
+  onToggleFollow,
+  onClose,
+}: {
+  bus: SelectedBus;
+  following: boolean;
+  onToggleFollow: () => void;
+  onClose: () => void;
+}) {
   useEscapeToClose(onClose);
 
   // Re-render once a second so the countdown keeps ticking down while the card
@@ -127,6 +159,13 @@ function BusCard({ bus, onClose }: { bus: SelectedBus; onClose: () => void }) {
           <strong>{bus.headsign || bus.routeName || "In service"}</strong>
           {bus.routeName && bus.headsign && <span className="sub">{bus.routeName}</span>}
         </div>
+        <button
+          className={following ? "follow-button on" : "follow-button"}
+          onClick={onToggleFollow}
+          aria-pressed={following}
+        >
+          {following ? "Following" : "Follow"}
+        </button>
         <button className="buscard-close" onClick={onClose} aria-label="Close">
           &times;
         </button>

@@ -506,6 +506,9 @@ body {
   color: var(--ink-3);
 }
 
+.follow-button { font-size: 12px; padding: 2px 8px; border-radius: 999px; }
+.follow-button.on { font-weight: 600; }
+
 .buscard-close {
   flex: none;
   width: var(--tap);
