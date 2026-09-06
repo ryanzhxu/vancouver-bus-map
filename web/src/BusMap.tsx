@@ -9,7 +9,15 @@ const INITIAL_VIEW = { center: [-123.1, 49.25] as [number, number], zoom: 11 };
 const BOUNDS: [number, number, number, number] = [-123.55, 48.95, -122.4, 49.45];
 
 /** OpenFreeMap serves vector tiles with no key and no quota. */
-const BASEMAP = "https://tiles.openfreemap.org/styles/positron";
+const BASEMAP_LIGHT = "https://tiles.openfreemap.org/styles/positron";
+const BASEMAP_DARK = "https://tiles.openfreemap.org/styles/dark";
+
+const darkQuery =
+  typeof window !== "undefined" && window.matchMedia
+    ? window.matchMedia("(prefers-color-scheme: dark)")
+    : null;
+
+const basemapFor = (dark: boolean) => (dark ? BASEMAP_DARK : BASEMAP_LIGHT);
 
 export type FeedState =
   | { kind: "connecting" }
@@ -76,7 +84,7 @@ export function BusMap({
 
     const map = new maplibregl.Map({
       container: container.current,
-      style: BASEMAP,
+      style: basemapFor(darkQuery?.matches ?? false),
       center: INITIAL_VIEW.center,
       zoom: INITIAL_VIEW.zoom,
       maxBounds: [
@@ -104,6 +112,15 @@ export function BusMap({
       diagnostics.mapPainted = true;
     });
     map.on("zoomend", () => onZoomRef.current(map.getZoom()));
+
+    // setStyle discards every layer we added, so the style.load handler has to
+    // run again. Bus positions live in BusField, not the source, so they
+    // reappear on the next animation frame.
+    const onThemeChange = (event: MediaQueryListEvent): void => {
+      layersAdded = false;
+      map.setStyle(basemapFor(event.matches));
+    };
+    darkQuery?.addEventListener("change", onThemeChange);
     const resizeObserver = new ResizeObserver(() => map.resize());
     resizeObserver.observe(container.current);
 
@@ -119,6 +136,10 @@ export function BusMap({
     (window as unknown as Record<string, unknown>).__vbm = diagnostics;
 
     let stopped = false;
+    let layersAdded = false;
+    // Interaction handlers live on the map, not the style, so they survive a
+    // setStyle and must only ever be bound once.
+    let handlersBound = false;
     let frame = 0;
     let socket: WebSocket | null = null;
     let pollTimer: number | undefined;
@@ -129,7 +150,6 @@ export function BusMap({
     // never finishes loading, so isStyleLoaded() stays false forever and "load"
     // never fires. "style.load" only needs the style parsed, which is all that
     // addSource and addLayer require.
-    let layersAdded = false;
     map.on("style.load", () => {
       if (stopped || layersAdded) return;
       layersAdded = true;
@@ -149,7 +169,7 @@ export function BusMap({
           "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 2.5, 12, 4.5, 15, 8],
           "circle-color": ["get", "color"],
           "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 11, 0.5, 15, 1.5],
-          "circle-stroke-color": "#ffffff",
+          "circle-stroke-color": darkQuery?.matches ? "#0b0f14" : "#ffffff",
           "circle-opacity": 0.92,
         },
       });
@@ -182,11 +202,25 @@ export function BusMap({
           "text-font": ["Noto Sans Regular"],
         },
         paint: {
-          "text-color": "#1a2530",
-          "text-halo-color": "#ffffff",
+          // Read against whichever basemap is showing, not just the light one.
+          "text-color": darkQuery?.matches ? "#e7ebef" : "#1a2530",
+          "text-halo-color": darkQuery?.matches ? "#10151b" : "#ffffff",
           "text-halo-width": 1.2,
         },
       });
+
+      bindInteractions();
+
+      // After a theme swap the map is already running; re-add stops directly.
+      const existing = gtfsRef.current;
+      if (existing && existing.stops.length > 0) addStopsLayer(existing);
+
+      if (!fieldRef.current) void start();
+    });
+
+    function bindInteractions(): void {
+      if (handlersBound) return;
+      handlersBound = true;
 
       // A 4px dot is a hard target on a phone, so query a box around the tap
       // rather than the exact pixel.
@@ -217,9 +251,7 @@ export function BusMap({
       map.on("mouseleave", "bus-dots", () => {
         map.getCanvas().style.cursor = "";
       });
-
-      void start();
-    });
+    }
 
     /**
      * Stops only appear from zoom 14. There are 8,945 of them and at city zoom
@@ -251,7 +283,7 @@ export function BusMap({
           minzoom: 14,
           paint: {
             "circle-radius": ["interpolate", ["linear"], ["zoom"], 14, 2.5, 17, 5],
-            "circle-color": "#ffffff",
+            "circle-color": darkQuery?.matches ? "#10151b" : "#ffffff",
             "circle-stroke-width": 1.5,
             "circle-stroke-color": "#8a97a3",
           },
@@ -432,6 +464,7 @@ export function BusMap({
 
     return () => {
       stopped = true;
+      darkQuery?.removeEventListener("change", onThemeChange);
       resizeObserver.disconnect();
       cancelAnimationFrame(frame);
       if (pollTimer) clearInterval(pollTimer);
