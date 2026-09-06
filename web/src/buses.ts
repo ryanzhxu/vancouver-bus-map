@@ -44,7 +44,7 @@ export interface RenderedBus {
   lat: number;
   lon: number;
   bearing: number;
-  /** True while gliding between two real samples. */
+  /** True when the bus actually changed position between its last two samples. */
   moving: boolean;
   /** Delay against schedule in seconds, or null when the feed gave none. */
   delay: number | null;
@@ -355,10 +355,13 @@ export class BusField {
     now: number,
     glide = true,
   ): { point: LatLon; bearing: number; moving: boolean } {
-    // Snapping (reduced motion) shows the latest sample outright, so progress
-    // is pinned to 1 and the bus never reads as moving between polls.
     const progress = glide ? clamp01((now - bus.startedAt) / bus.durationMs) : 1;
-    const moving = progress < 1;
+    // A fact about the feed, not the animation: whether the bus displaced
+    // between its last two samples. Independent of progress/glide on purpose —
+    // a parked bus that keeps transmitting the same fix is re-ingested every
+    // snapshot regardless, and reduced motion must not change what "moving"
+    // means, only how the position tweens.
+    const moving = distance(bus.from, bus.to) > MOVEMENT_THRESHOLD_METRES / METRES_PER_DEGREE;
 
     if (bus.track && bus.fromDistance !== null && bus.toDistance !== null) {
       // Guard against a bad projection sending the bus backwards along the
@@ -400,6 +403,16 @@ export class BusField {
  * make the express routes the ones that look broken.
  */
 const MAX_GLIDE_DEGREES = 0.03;
+
+/**
+ * A bus displaced less than this between its last two samples counts as
+ * parked, not moving. A terminus or a layover holds several buses that keep
+ * transmitting a GPS fix that wanders by a few metres of receiver jitter each
+ * poll, and that jitter must not read as travel. Twenty metres over a
+ * 90-second poll is about 0.8 km/h — comfortably clear of the jitter, and
+ * unambiguously stopped.
+ */
+const MOVEMENT_THRESHOLD_METRES = 20;
 
 function clamp01(n: number): number {
   return n < 0 ? 0 : n > 1 ? 1 : n;
@@ -466,7 +479,8 @@ export const BUNCH_BEARING_TOLERANCE = 45;
 
 /**
  * geo.ts measures in equivalent degrees of latitude. One degree of latitude is
- * about 111.32 km, which is what converts BUNCH_METRES into those units.
+ * about 111.32 km, which is what converts a metre threshold — BUNCH_METRES,
+ * MOVEMENT_THRESHOLD_METRES — into those units.
  */
 const METRES_PER_DEGREE = 111_320;
 

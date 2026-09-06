@@ -100,14 +100,13 @@ describe("BusField", () => {
       field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
 
       // Halfway through the interval the default glide is mid-tween, but a
-      // reduced-motion caller sees the bus already at its reported position and
-      // not moving, so nothing slides between polls.
+      // reduced-motion caller sees the bus already at its reported position,
+      // so nothing slides between polls.
       const mid = 1000 + 45_000;
       expect(field.positionsAt(mid, true)[0]!.lat).toBeCloseTo(49.29, 4);
 
       const snapped = field.positionsAt(mid, false)[0]!;
       expect(snapped.lat).toBeCloseTo(49.3, 6);
-      expect(snapped.moving).toBe(false);
     });
 
     it("stops at the target rather than overshooting when a snapshot is late", () => {
@@ -117,7 +116,34 @@ describe("BusField", () => {
 
       const late = field.positionsAt(1000 + 300_000)[0]!;
       expect(late.lat).toBeCloseTo(49.3, 6);
-      expect(late.moving).toBe(false);
+    });
+  });
+
+  describe("moving", () => {
+    it("reads false for a bus reporting the same spot twice, true for one that displaced", () => {
+      const parked = new BusField(noTracks);
+      parked.ingest(snapshot([vehicle({ y: 49.28, x: -123.12 })]), 0);
+      parked.ingest(snapshot([vehicle({ y: 49.28, x: -123.12 })]), 90_000);
+      expect(parked.positionsAt(90_000)[0]!.moving).toBe(false);
+
+      const travelling = new BusField(noTracks);
+      travelling.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
+      travelling.ingest(snapshot([vehicle({ y: 49.3 })]), 90_000);
+      expect(travelling.positionsAt(90_000)[0]!.moving).toBe(true);
+    });
+
+    it("reads the same whether or not the caller is gliding", () => {
+      // Reduced motion changes how the position tweens, not what "moving"
+      // means: it must not flip the flag on its own.
+      const field = new BusField(noTracks);
+      field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
+      field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
+
+      for (const now of [1000 + 45_000, 1000 + 90_000, 1000 + 300_000]) {
+        expect(field.positionsAt(now, false)[0]!.moving).toBe(
+          field.positionsAt(now, true)[0]!.moving,
+        );
+      }
     });
   });
 
@@ -533,12 +559,15 @@ describe("findBunches", () => {
   });
 
   it("does not bunch buses parked at a terminus", () => {
-    expect(
-      findBunches([
-        rendered({ id: "a", moving: false }),
-        rendered({ id: "b", moving: false, lat: northOf(49.28, 30) }),
-      ]),
-    ).toEqual([]);
+    // Exercises the real mechanism behind "moving", not a hand-set flag: two
+    // buses that keep transmitting but report the same spot on both polls.
+    const field = new BusField(noTracks);
+    const a = vehicle({ i: "a", y: 49.28, x: -123.12 });
+    const b = vehicle({ i: "b", y: northOf(49.28, 30), x: -123.12 });
+    field.ingest(snapshot([a, b]), 0);
+    field.ingest(snapshot([a, b]), 90_000);
+
+    expect(findBunches(field.positionsAt(90_000))).toEqual([]);
   });
 
   it("groups three close buses as one bunch, not three pairs", () => {
