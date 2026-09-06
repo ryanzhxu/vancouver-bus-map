@@ -322,6 +322,17 @@ body {
   padding: 0.75rem;
   /* On a wide screen it should not stretch the width of a desktop monitor. */
   max-width: 26rem;
+  /* Never grow taller than the space between the card's bottom anchor and the
+     top of the viewport. .app is overflow:hidden, so a stop card with a full
+     arrivals list on a short viewport (a phone held in landscape) would push
+     its own header and × button above y=0, where they are clipped and cannot be
+     tapped. Cap the height to that space and scroll the contents instead — the
+     same pattern the About sheet uses. The 5.75rem here mirrors the bottom
+     anchor above; web/src/layout.test.ts fails if the two ever diverge. */
+  max-height: calc(
+    100dvh - 5.75rem - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 1rem
+  );
+  overflow-y: auto;
 }
 
 .buscard-head {
