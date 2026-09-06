@@ -14,6 +14,7 @@ import {
   isLate,
   LATE_THRESHOLD_SECONDS,
   markerShapeFor,
+  shouldClearFollow,
   STALE_FEED_SECONDS,
   type Snapshot,
   type WireVehicle,
@@ -454,5 +455,25 @@ describe("markerShapeFor", () => {
   it("draws a bus at the threshold and above", () => {
     expect(markerShapeFor(BUS_ICON_MIN_ZOOM)).toBe("bus");
     expect(markerShapeFor(16)).toBe("bus");
+  });
+});
+
+describe("shouldClearFollow", () => {
+  it("keeps following when the same bus is reselected", () => {
+    // This is the 90-second-refresh case: apply() re-selects the followed
+    // bus on every snapshot, and that must not cancel the follow.
+    expect(shouldClearFollow({ id: "bus-1" }, "bus-1")).toBe(false);
+  });
+
+  it("clears when a different bus is selected", () => {
+    expect(shouldClearFollow({ id: "bus-2" }, "bus-1")).toBe(true);
+  });
+
+  it("clears when the selection is cleared entirely", () => {
+    expect(shouldClearFollow(null, "bus-1")).toBe(true);
+  });
+
+  it("stays cleared when nothing was being followed", () => {
+    expect(shouldClearFollow({ id: "bus-1" }, null)).toBe(false);
   });
 });

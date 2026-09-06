@@ -11,6 +11,7 @@ import {
   hintText,
   isFeedStale,
   isLate,
+  shouldClearFollow,
   type ArrivalsFailure,
   type WireVehicle,
 } from "./buses.js";
@@ -56,10 +57,7 @@ export function App() {
           // Tapping a stop, empty map, or a different bus reaches here too, and
           // none of those go through BusCard's onClose. Without this, following
           // would keep re-centring on a bus whose card is no longer on screen.
-          // apply() also re-invokes this on every snapshot to refresh the open
-          // card with the same bus, so only clear when the selection actually
-          // changed away from the one being followed.
-          if (!next || next.id !== followId) setFollowId(null);
+          if (shouldClearFollow(next, followId)) setFollowId(null);
         }}
         onSelectStop={setStop}
         onReady={setGtfs}

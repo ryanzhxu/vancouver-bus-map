@@ -506,8 +506,33 @@ body {
   color: var(--ink-3);
 }
 
-.follow-button { font-size: 12px; padding: 2px 8px; border-radius: 999px; }
-.follow-button.on { font-weight: 600; }
+.follow-button {
+  flex: none;
+  min-height: var(--tap);
+  min-width: var(--tap);
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.follow-button.on {
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+}
+
+.follow-button:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
 
 .buscard-close {
   flex: none;
