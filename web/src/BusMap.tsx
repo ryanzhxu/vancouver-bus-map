@@ -215,7 +215,9 @@ export function BusMap({
           // because a neighbour got there first would be a lie about the fleet.
           "icon-allow-overlap": true,
           "icon-ignore-placement": true,
-          "symbol-sort-key": ["case", ["get", "express"], 0, 1],
+          // While icon-allow-overlap is true, a higher sort key draws on top of
+          // a lower one, so express (1) wins over local (0) where they coincide.
+          "symbol-sort-key": ["case", ["get", "express"], 1, 0],
         },
       });
 
