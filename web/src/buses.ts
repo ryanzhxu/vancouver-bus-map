@@ -45,6 +45,23 @@ export interface RenderedBus {
   bearing: number;
   /** True while gliding between two real samples. */
   moving: boolean;
+  /** Delay against schedule in seconds, or null when the feed gave none. */
+  delay: number | null;
+}
+
+/**
+ * A bus this many seconds behind schedule is flagged "late" on the map.
+ *
+ * Five minutes, not forty seconds: a rider waiting for the next bus does not
+ * feel a bus that is barely behind, and TransLink's own predictions drift by a
+ * minute or two between polls. Below this, a flag would cry wolf. The map's
+ * legend names this number so the colour is never unexplained.
+ */
+export const LATE_THRESHOLD_SECONDS = 300;
+
+/** True when a bus is late enough to flag. A missing or early delay is not. */
+export function isLate(delay: number | null | undefined): boolean {
+  return delay != null && delay >= LATE_THRESHOLD_SECONDS;
 }
 
 interface BusState {
@@ -60,6 +77,7 @@ interface BusState {
   startedAt: number;
   durationMs: number;
   lastSeen: number;
+  delay: number | null;
 }
 
 /** Drop a bus that has not appeared in this many milliseconds. */
@@ -115,6 +133,7 @@ export class BusField {
         startedAt: now,
         durationMs,
         lastSeen: now,
+        delay: v.l ?? null,
       });
     }
 
@@ -135,6 +154,7 @@ export class BusField {
         lon: point[1],
         bearing,
         moving,
+        delay: bus.delay,
       });
     }
 

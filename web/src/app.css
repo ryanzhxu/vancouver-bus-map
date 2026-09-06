@@ -24,6 +24,10 @@
   --ok: #0e6c46;
   --warn: #8a5200;
   --stop: #9e2b22;
+  /* The late-bus flag. Decorative only — it colours the map halo and the legend
+     swatch, never text, so it need not meet the 4.5:1 text-contrast rule. Kept
+     identical in both themes so the swatch always matches the map ring. */
+  --late: #e8590c;
   --shadow: 0 1px 2px rgb(20 26 33 / 12%), 0 8px 24px -12px rgb(20 26 33 / 30%);
 
   --tap: 44px;
@@ -151,6 +155,24 @@ body {
 }
 .dot.stop {
   background: var(--stop);
+}
+.dot.late {
+  background: var(--late);
+}
+
+/* The map legend: ties the orange halo on the map to the five-minute threshold
+   in words. Wraps to the next line as one unit rather than breaking the phrase. */
+.late-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.late-note strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
 }
 
 .about-button {
@@ -383,6 +405,18 @@ body {
 .wheelchair {
   color: var(--ok);
   font-size: 1rem;
+}
+
+/* How far behind schedule a selected bus runs. A bus past the flag threshold is
+   drawn in the warning colour so the card echoes the map's late halo. --warn
+   clears 4.5:1 on the card surface in both themes; the default stays neutral. */
+.delay {
+  color: var(--ink-2);
+}
+
+.delay.late {
+  color: var(--warn);
+  font-weight: 600;
 }
 
 /* The live countdown for a selected bus, on its own line under the stop name. */
