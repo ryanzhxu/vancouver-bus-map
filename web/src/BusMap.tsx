@@ -1,5 +1,11 @@
 import maplibregl from "maplibre-gl";
 import { useEffect, useRef, useState } from "react";
+import {
+  DEFAULT_BASEMAP,
+  basemapStyle,
+  nextBasemap,
+  type BasemapProvider,
+} from "./basemap.js";
 import { BusField, isLate, type Snapshot } from "./buses.js";
 import { GtfsData } from "./gtfs.js";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -7,10 +13,6 @@ import "maplibre-gl/dist/maplibre-gl.css";
 /** Metro Vancouver, framed to hold Richmond through North Van. */
 const INITIAL_VIEW = { center: [-123.1, 49.25] as [number, number], zoom: 11 };
 const BOUNDS: [number, number, number, number] = [-123.55, 48.95, -122.4, 49.45];
-
-/** OpenFreeMap serves vector tiles with no key and no quota. */
-const BASEMAP_LIGHT = "https://tiles.openfreemap.org/styles/positron";
-const BASEMAP_DARK = "https://tiles.openfreemap.org/styles/dark";
 
 /**
  * The halo drawn around a bus running behind schedule. One warm orange reads on
@@ -23,8 +25,6 @@ const darkQuery =
   typeof window !== "undefined" && window.matchMedia
     ? window.matchMedia("(prefers-color-scheme: dark)")
     : null;
-
-const basemapFor = (dark: boolean) => (dark ? BASEMAP_DARK : BASEMAP_LIGHT);
 
 export type FeedState =
   | { kind: "connecting" }
@@ -95,9 +95,15 @@ export function BusMap({
   useEffect(() => {
     if (!container.current) return;
 
+    // The provider currently drawing the basemap. It moves down BASEMAP_CHAIN
+    // when a style fails to load, so a rider keeps a map even if the default
+    // provider is down.
+    let provider: BasemapProvider = DEFAULT_BASEMAP;
+    const styleFor = (dark: boolean) => basemapStyle(provider, dark);
+
     const map = new maplibregl.Map({
       container: container.current,
-      style: basemapFor(darkQuery?.matches ?? false),
+      style: styleFor(darkQuery?.matches ?? false),
       center: INITIAL_VIEW.center,
       zoom: INITIAL_VIEW.zoom,
       maxBounds: [
@@ -126,12 +132,25 @@ export function BusMap({
     });
     map.on("zoomend", () => onZoomRef.current(map.getZoom()));
 
+    // A style that will not load (the provider is down, and OpenFreeMap has no
+    // SLA) leaves the map blank. Fall through to the next keyless provider, but
+    // only before style.load has fired: once layers are added the style loaded,
+    // so any later error is a single tile or source, not a dead basemap. A spent
+    // chain returns null, so a total outage cannot loop.
+    map.on("error", () => {
+      if (stopped || layersAdded) return;
+      const fallback = nextBasemap(provider);
+      if (!fallback) return;
+      provider = fallback;
+      map.setStyle(styleFor(darkQuery?.matches ?? false));
+    });
+
     // setStyle discards every layer we added, so the style.load handler has to
     // run again. Bus positions live in BusField, not the source, so they
     // reappear on the next animation frame.
     const onThemeChange = (event: MediaQueryListEvent): void => {
       layersAdded = false;
-      map.setStyle(basemapFor(event.matches));
+      map.setStyle(styleFor(event.matches));
     };
     darkQuery?.addEventListener("change", onThemeChange);
     const resizeObserver = new ResizeObserver(() => map.resize());
