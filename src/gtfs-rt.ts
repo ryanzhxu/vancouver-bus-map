@@ -41,6 +41,7 @@ export function* readFields(buf: Uint8Array): Generator<Field> {
         break;
       }
       case WIRE_I64: {
+        if (i + 8 > buf.length) throw new Error("protobuf: fixed64 field overruns buffer");
         yield { no, wire, value: view.getFloat64(i, true) };
         i += 8;
         break;
@@ -55,6 +56,7 @@ export function* readFields(buf: Uint8Array): Generator<Field> {
         break;
       }
       case WIRE_I32: {
+        if (i + 4 > buf.length) throw new Error("protobuf: fixed32 field overruns buffer");
         yield { no, wire, value: view.getFloat32(i, true) };
         i += 4;
         break;
