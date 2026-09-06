@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import { BusMap, type FeedState, type SelectedBus, type SelectedStop } from "./BusMap.js";
-import { describeAge, describeDelay, hasDeparted, hintText, isLate } from "./buses.js";
+import {
+  describeAge,
+  describeDelay,
+  hasDeparted,
+  hintText,
+  isFeedStale,
+  isLate,
+} from "./buses.js";
 import type { GtfsData } from "./gtfs.js";
 
 /** Matches the stop layer's minzoom in BusMap. */
@@ -299,9 +306,13 @@ function StatusPill({ feed }: { feed: FeedState }) {
   }, []);
 
   if (feed.kind === "live") {
+    // A green "live" dot next to "8 hr ago" would tell a rider the overnight
+    // snapshot is current. Once the feed is stale the dot reads amber, matching
+    // the age beside it.
+    const stale = isFeedStale(feed.feedTime);
     return (
       <div className="status">
-        <span className="dot live" aria-hidden="true" />
+        <span className={`dot ${stale ? "warn" : "live"}`} aria-hidden="true" />
         <strong>{feed.buses}</strong> buses
         <span className="age">{describeAge(feed.feedTime)}</span>
         {feed.late > 0 && (

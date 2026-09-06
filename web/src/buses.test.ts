@@ -6,8 +6,10 @@ import {
   describeDelay,
   hasDeparted,
   hintText,
+  isFeedStale,
   isLate,
   LATE_THRESHOLD_SECONDS,
+  STALE_FEED_SECONDS,
   type Snapshot,
   type WireVehicle,
 } from "./buses.js";
@@ -350,5 +352,32 @@ describe("describeAge", () => {
 
   it("never reads negative when the client clock lags the feed", () => {
     expect(describeAge(nowSeconds + 5, now)).toBe("0s ago");
+  });
+});
+
+describe("isFeedStale", () => {
+  const now = 1_700_000_000_000;
+  const nowSeconds = Math.floor(now / 1000);
+
+  it("treats a fresh feed as current", () => {
+    expect(isFeedStale(nowSeconds - 30, now)).toBe(false);
+    expect(isFeedStale(nowSeconds - 3 * 60, now)).toBe(false);
+  });
+
+  it("flags the overnight snapshot the poller left behind", () => {
+    // 23:00-07:00 the poller sleeps and the map carries the last evening poll,
+    // so a green "live" dot would tell a rider hours-old positions are current.
+    expect(isFeedStale(nowSeconds - 8 * 3600, now)).toBe(true);
+  });
+
+  it("switches exactly at the threshold, not before", () => {
+    expect(isFeedStale(nowSeconds - STALE_FEED_SECONDS, now)).toBe(false);
+    expect(isFeedStale(nowSeconds - STALE_FEED_SECONDS - 1, now)).toBe(true);
+  });
+
+  it("is not stale when the feed has no timestamp", () => {
+    // "connecting" and "schedules-only" own the no-timestamp case, not "live".
+    expect(isFeedStale(null, now)).toBe(false);
+    expect(isFeedStale(0, now)).toBe(false);
   });
 });
