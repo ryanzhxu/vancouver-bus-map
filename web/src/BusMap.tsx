@@ -6,8 +6,9 @@ import {
   nextBasemap,
   type BasemapProvider,
 } from "./basemap.js";
-import { BusField, isLate, type Snapshot } from "./buses.js";
-import { GtfsData } from "./gtfs.js";
+import { BusField, isLate, markerShapeFor, type Snapshot } from "./buses.js";
+import { DEFAULT_ROUTE_COLOR, GtfsData } from "./gtfs.js";
+import { distinctRouteColors, drawMarker, iconName } from "./icons.js";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 /** Metro Vancouver, framed to hold Richmond through North Van. */
@@ -200,18 +201,19 @@ export function BusMap({
         data: { type: "FeatureCollection", features: [] },
       });
 
-      // A triangle reads as "heading somewhere" in a way a dot does not, and
-      // TransLink sends no bearing, so this is the only cue of direction.
       map.addLayer({
-        id: "bus-dots",
-        type: "circle",
+        id: "bus-icons",
+        type: "symbol",
         source: "buses",
-        paint: {
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 2.5, 12, 4.5, 15, 8],
-          "circle-color": ["get", "color"],
-          "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 11, 0.5, 15, 1.5],
-          "circle-stroke-color": darkQuery?.matches ? "#0b0f14" : "#ffffff",
-          "circle-opacity": 0.92,
+        layout: {
+          "icon-image": ["get", "icon"],
+          "icon-rotate": ["get", "bearing"],
+          "icon-rotation-alignment": "map",
+          "icon-size": ["interpolate", ["linear"], ["zoom"], 9, 0.45, 12, 0.7, 15, 1],
+          // ~1,500 symbols cannot afford collision detection, and a bus hidden
+          // because a neighbour got there first would be a lie about the fleet.
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
         },
       });
 
@@ -230,7 +232,7 @@ export function BusMap({
           "circle-stroke-width": 2,
           "circle-stroke-color": LATE_COLOR,
         },
-      }, "bus-dots");
+      }, "bus-icons");
 
       // Drawn beneath the dots so the ring reads as a halo, not a badge.
       map.addLayer({
@@ -245,7 +247,7 @@ export function BusMap({
           "circle-stroke-width": 2,
           "circle-stroke-color": "#0b6ea8",
         },
-      }, "bus-dots");
+      }, "bus-icons");
 
       map.addLayer({
         id: "bus-labels",
@@ -288,7 +290,7 @@ export function BusMap({
           [event.point.x + 12, event.point.y + 12],
         ];
         // Buses win ties: they are smaller targets and the more likely intent.
-        const busHits = map.queryRenderedFeatures(box, { layers: ["bus-dots"] });
+        const busHits = map.queryRenderedFeatures(box, { layers: ["bus-icons"] });
         if (busHits.length > 0) {
           selectStop(undefined);
           select(busHits[0]?.properties?.["id"] as string | undefined);
@@ -303,10 +305,10 @@ export function BusMap({
       });
 
       map.getCanvas().style.cursor = "";
-      map.on("mouseenter", "bus-dots", () => {
+      map.on("mouseenter", "bus-icons", () => {
         map.getCanvas().style.cursor = "pointer";
       });
-      map.on("mouseleave", "bus-dots", () => {
+      map.on("mouseleave", "bus-icons", () => {
         map.getCanvas().style.cursor = "";
       });
     }
@@ -411,6 +413,19 @@ export function BusMap({
         return;
       }
       if (stopped) return;
+
+      // Register one image per shape per colour. The set is small — TransLink
+      // colours only 12 routes — and doing it once here means animate() can
+      // name an icon per bus with no per-frame work.
+      const ratio = Math.min(2, Math.max(1, Math.round(window.devicePixelRatio || 1)));
+      for (const color of distinctRouteColors(gtfs.routes, DEFAULT_ROUTE_COLOR)) {
+        for (const shape of ["chevron", "bus"] as const) {
+          const name = iconName(shape, color);
+          if (!map.hasImage(name)) {
+            map.addImage(name, drawMarker(shape, color, ratio), { pixelRatio: ratio });
+          }
+        }
+      }
 
       fieldRef.current = new BusField((tripId) => {
         const shapeId = tripShapes.current.get(tripId);
@@ -546,6 +561,7 @@ export function BusMap({
           color: gtfs.routeColor(bus.routeId),
           bearing: bus.bearing,
           late: isLate(bus.delay),
+          icon: iconName(markerShapeFor(map.getZoom()), gtfs.routeColor(bus.routeId)),
         },
       }));
 

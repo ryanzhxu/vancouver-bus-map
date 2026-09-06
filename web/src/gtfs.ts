@@ -39,6 +39,14 @@ export interface Manifest {
   counts: Record<string, number>;
 }
 
+/**
+ * The colour a bus is drawn in when its route carries none of its own.
+ *
+ * TransLink colours only the rail lines; buses get one consistent colour
+ * rather than a random one per route, which would read as meaningful.
+ */
+export const DEFAULT_ROUTE_COLOR = "#0b6ea8";
+
 export class GtfsData {
   private version: string | null = null;
   routes = new Map<string, RouteInfo>();
@@ -141,9 +149,7 @@ export class GtfsData {
   routeColor(routeId: string): string {
     const route = this.routes.get(routeId);
     if (route?.c) return `#${route.c}`;
-    // TransLink colours only the rail lines; buses get one consistent colour
-    // rather than a random one per route, which would read as meaningful.
-    return "#0b6ea8";
+    return DEFAULT_ROUTE_COLOR;
   }
 
   private url(path: string): string {

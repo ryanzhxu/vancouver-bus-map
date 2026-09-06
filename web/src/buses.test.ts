@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   arrivalsErrorText,
+  BUS_ICON_MIN_ZOOM,
   BusField,
   countdown,
   DEPARTED_SLACK_SECONDS,
@@ -12,6 +13,7 @@ import {
   isFeedStale,
   isLate,
   LATE_THRESHOLD_SECONDS,
+  markerShapeFor,
   STALE_FEED_SECONDS,
   type Snapshot,
   type WireVehicle,
@@ -440,5 +442,17 @@ describe("describeArrival", () => {
     const text = describeArrival(nowSeconds + 90 * 60, now);
     expect(text).toMatch(/^arriving at /);
     expect(text).not.toContain(" min");
+  });
+});
+
+describe("markerShapeFor", () => {
+  it("draws a chevron below the bus-icon zoom, where the whole region is on screen", () => {
+    expect(markerShapeFor(BUS_ICON_MIN_ZOOM - 0.01)).toBe("chevron");
+    expect(markerShapeFor(11)).toBe("chevron");
+  });
+
+  it("draws a bus at the threshold and above", () => {
+    expect(markerShapeFor(BUS_ICON_MIN_ZOOM)).toBe("bus");
+    expect(markerShapeFor(16)).toBe("bus");
   });
 });
