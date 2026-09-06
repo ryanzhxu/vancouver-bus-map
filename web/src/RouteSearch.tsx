@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { GtfsData } from "./gtfs.js";
+import { DEFAULT_ROUTE_COLOR, type GtfsData } from "./gtfs.js";
 import { isExpress, searchRoutes, type RouteMatch } from "./routes.js";
 
 /**
@@ -73,7 +73,10 @@ export function RouteSearch({
           {matches.map((match) => (
             <li key={match.routeId}>
               <button onClick={() => choose(match)}>
-                <span className={isExpress(match.label) ? "route-badge express" : "route-badge"}>
+                <span
+                  className={isExpress(match.label) ? "route-badge express" : "route-badge"}
+                  style={{ background: gtfs?.routeColor(match.routeId) ?? DEFAULT_ROUTE_COLOR }}
+                >
                   {match.label}
                 </span>
                 <span className="routesearch-name">{match.name}</span>
@@ -85,7 +88,12 @@ export function RouteSearch({
 
       {selected && (
         <div className="routesearch-selected" role="status">
-          <span className="route-badge">{selected.label}</span>
+          <span
+            className="route-badge"
+            style={{ background: gtfs?.routeColor(selected.routeId) ?? DEFAULT_ROUTE_COLOR }}
+          >
+            {selected.label}
+          </span>
           <span className="routesearch-name">{selected.name}</span>
           <span className="routesearch-count">
             {liveCount} {liveCount === 1 ? "bus" : "buses"} running

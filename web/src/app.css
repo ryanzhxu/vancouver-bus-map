@@ -476,6 +476,10 @@ body {
   min-width: 2.5rem;
   padding: 0.2rem 0.45rem;
   border-radius: 6px;
+  /* Every call site overrides this with the route's own colour via an inline
+     style. This fallback exists so a call site that forgets to set one never
+     renders white-on-white text instead of just the wrong colour. */
+  background: var(--ink-3);
   color: #fff;
   font-weight: 700;
   font-size: 0.95rem;
@@ -668,7 +672,12 @@ body {
      on a 320px screen — so any fixed bottom offset eventually collides with a
      licence notice we are not allowed to cover. The top is empty except for
      the zoom controls, which the right inset clears. */
-  top: max(0.75rem, calc(env(safe-area-inset-top) + 0.75rem));
+  /* Cleared below the route search control row: .routesearch's own top offset
+     (0.75rem) plus its input/button row height (--tap), with a small gap.
+     Based on the control row alone, not the whole search component — its
+     results dropdown can grow much taller, but the hint only needs to clear
+     what is always on screen. */
+  top: calc(max(0.75rem, env(safe-area-inset-top) + 0.75rem) + var(--tap) + 0.5rem);
   left: max(0.75rem, env(safe-area-inset-left));
   right: calc(3.25rem + env(safe-area-inset-right));
   z-index: 3;
