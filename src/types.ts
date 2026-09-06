@@ -32,6 +32,10 @@ export interface WireVehicle {
   h?: string;
   /** trip headsign, e.g. "UBC" */
   d?: string;
+  /** predicted arrival at the next stop, absolute epoch seconds */
+  a?: number;
+  /** delay against schedule in seconds; negative is early */
+  l?: number;
 }
 
 /** trip_id -> [routeId, shapeId, headsign, directionId] */

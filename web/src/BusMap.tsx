@@ -42,6 +42,8 @@ export interface SelectedBus {
   nextStopAccessible: number;
   stopSequence: number;
   color: string;
+  /** Predicted arrival at the next stop, epoch seconds, or null when unknown. */
+  arrivalTime: number | null;
 }
 
 export function BusMap({
@@ -76,7 +78,9 @@ export function BusMap({
   const onZoomRef = useRef(onZoom);
   onZoomRef.current = onZoom;
   /** Latest wire record per bus, for the detail sheet. */
-  const wireById = useRef(new Map<string, { r: string; d?: string; p: string; s: number }>());
+  const wireById = useRef(
+    new Map<string, { r: string; d?: string; p: string; s: number; a?: number }>(),
+  );
   const selectedId = useRef<string | null>(null);
 
   useEffect(() => {
@@ -334,6 +338,7 @@ export function BusMap({
         nextStopAccessible: stop?.w ?? 0,
         stopSequence: wire.s,
         color: gtfs.routeColor(wire.r),
+        arrivalTime: wire.a ?? null,
       });
     }
 
@@ -430,7 +435,7 @@ export function BusMap({
       for (const v of snapshot.vehicles) {
         if (v.r) routes.add(v.r);
         if (v.h) tripShapes.current.set(v.t, v.h);
-        wireById.current.set(v.i, { r: v.r, d: v.d, p: v.p, s: v.s });
+        wireById.current.set(v.i, { r: v.r, d: v.d, p: v.p, s: v.s, a: v.a });
       }
       for (const routeId of routes) void gtfs.ensureRoute(routeId);
 
