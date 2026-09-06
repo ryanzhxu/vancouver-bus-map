@@ -84,6 +84,30 @@ export function describeDelay(delay: number | null): string {
   return "on time";
 }
 
+/**
+ * How long a departure keeps showing after its time passes, in seconds.
+ *
+ * Mirrors the "keep a minute of slack so a bus that just left is still listed"
+ * rule mergeArrivals applies server-side (src/arrivals.ts). A bus that left
+ * within this window still reads "now", which is honest — it is right there.
+ */
+export const DEPARTED_SLACK_SECONDS = 60;
+
+/**
+ * True once a departure is far enough past that it is gone, not "now".
+ *
+ * The stop card fetches every 90 seconds but ticks the client clock every
+ * second, and its countdown() prints "now" for any past time. Without this a
+ * departure that was already at the server's 60-second slack edge when fetched
+ * kept reading "now" for the rest of the fetch window — up to ~150 seconds
+ * after the bus actually left. Re-applying the server's own freshness rule on
+ * every tick drops such a row instead. It can only remove a row the next fetch
+ * would drop too, so it never hides a still-valid arrival.
+ */
+export function hasDeparted(timeSeconds: number, nowSeconds: number): boolean {
+  return nowSeconds - timeSeconds > DEPARTED_SLACK_SECONDS;
+}
+
 /** The feed states the map reports to the UI. Mirrors FeedState["kind"]. */
 export type FeedKind = "connecting" | "live" | "schedules-only" | "error";
 
