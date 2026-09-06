@@ -39,6 +39,11 @@ export interface Manifest {
   counts: Record<string, number>;
 }
 
+/** How a route is named for display: "099" is the 99 on every sign in the city. */
+export function routeLabelOf(route: RouteInfo): string {
+  return route.s ? route.s.replace(/^0+(?=\d)/, "") : route.n;
+}
+
 /**
  * The colour a bus is drawn in when its route carries none of its own.
  *
@@ -56,6 +61,8 @@ export class GtfsData {
 
   /** shapeId -> track, filled in as routes are requested. */
   private tracks = new Map<string, Track>();
+  /** routeId -> the shape ids in its bundle, filled by ensureRoute. */
+  private routeShapes = new Map<string, string[]>();
   /** routeId -> in-flight or completed load, so we fetch each bundle once. */
   private routeLoads = new Map<string, Promise<void>>();
 
@@ -94,6 +101,15 @@ export class GtfsData {
     return this.tracks.get(shapeId) ?? null;
   }
 
+  /** Every loaded shape for a route, as point arrays. Empty until ensureRoute resolves. */
+  shapesFor(routeId: string): LatLon[][] {
+    const shapeIds = this.routeShapes.get(routeId) ?? [];
+    return shapeIds
+      .map((id) => this.tracks.get(id))
+      .filter((track): track is Track => track !== undefined)
+      .map((track) => track.points);
+  }
+
   /**
    * Fetch the geometry bundle for a route. Safe to call repeatedly — the first
    * call wins and later callers await the same promise.
@@ -111,6 +127,7 @@ export class GtfsData {
         for (const [shapeId, points] of Object.entries(bundle)) {
           this.tracks.set(shapeId, buildTrack(points));
         }
+        this.routeShapes.set(routeId, Object.keys(bundle));
       } catch {
         // A failed load is not fatal: those buses fall back to straight-line
         // movement rather than disappearing from the map. But it must not be
@@ -142,8 +159,7 @@ export class GtfsData {
   routeLabel(routeId: string): string {
     const route = this.routes.get(routeId);
     if (!route) return routeId;
-    if (route.s) return route.s.replace(/^0+(?=\d)/, "");
-    return route.n || routeId;
+    return routeLabelOf(route) || routeId;
   }
 
   routeColor(routeId: string): string {

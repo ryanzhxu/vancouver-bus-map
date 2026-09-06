@@ -198,6 +198,136 @@ body {
   outline-offset: 2px;
 }
 
+/* ---------- route search ---------- */
+
+.routesearch {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: min(320px, calc(100vw - 24px));
+  z-index: 5;
+}
+
+.routesearch-controls {
+  display: flex;
+  gap: 6px;
+}
+
+.routesearch-input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 0 0.75rem;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.express-toggle {
+  flex: none;
+  min-height: var(--tap);
+  padding: 0 0.75rem;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.express-toggle.on {
+  color: #fff;
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+}
+
+.routesearch-results {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.routesearch-results button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.routesearch-results button:hover,
+.routesearch-results button:focus-visible {
+  background: var(--surface-2);
+}
+
+.routesearch-name {
+  overflow-wrap: anywhere;
+  color: var(--ink-2);
+  font-size: 0.85rem;
+}
+
+.routesearch-selected {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 0.4rem 0.6rem;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.routesearch-count {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-3);
+  font-size: 0.8rem;
+}
+
+.routesearch-selected button {
+  flex: none;
+  width: var(--tap);
+  height: var(--tap);
+  margin: -0.2rem -0.2rem -0.2rem 0;
+  font-size: 1.3rem;
+  line-height: 1;
+  color: var(--ink-3);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.route-badge.express {
+  font-weight: 700;
+}
+
 /* ---------- about sheet ---------- */
 
 .sheet-backdrop {

@@ -6,10 +6,10 @@ import {
   nextBasemap,
   type BasemapProvider,
 } from "./basemap.js";
-import { BusField, isLate, markerShapeFor, type Snapshot } from "./buses.js";
+import { BusField, isLate, markerShapeFor, type Snapshot, type WireVehicle } from "./buses.js";
 import { DEFAULT_ROUTE_COLOR, GtfsData } from "./gtfs.js";
 import { distinctRouteColors, drawMarker, iconName } from "./icons.js";
-import { isExpress } from "./routes.js";
+import { isExpress, shouldDim, type Highlight } from "./routes.js";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 /** Metro Vancouver, framed to hold Richmond through North Van. */
@@ -72,12 +72,16 @@ export function BusMap({
   onSelectStop,
   onReady,
   onZoom,
+  onSnapshot,
+  highlight,
 }: {
   onState: (state: FeedState) => void;
   onSelect: (bus: SelectedBus | null) => void;
   onSelectStop: (stop: SelectedStop | null) => void;
   onReady: (gtfs: GtfsData) => void;
   onZoom: (zoom: number) => void;
+  onSnapshot: (vehicles: WireVehicle[]) => void;
+  highlight: Highlight;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
@@ -97,6 +101,10 @@ export function BusMap({
   onReadyRef.current = onReady;
   const onZoomRef = useRef(onZoom);
   onZoomRef.current = onZoom;
+  const onSnapshotRef = useRef(onSnapshot);
+  onSnapshotRef.current = onSnapshot;
+  const highlightRef = useRef(highlight);
+  highlightRef.current = highlight;
   /** Latest wire record per bus, for the detail sheet. */
   const wireById = useRef(
     new Map<string, { r: string; d?: string; p: string; s: number; a?: number; l?: number }>(),
@@ -219,6 +227,9 @@ export function BusMap({
           // a lower one, so express (1) wins over local (0) where they coincide.
           "symbol-sort-key": ["case", ["get", "express"], 1, 0],
         },
+        paint: {
+          "icon-opacity": ["case", ["get", "dim"], 0.2, 0.95],
+        },
       });
 
       // A warm ring around any bus more than five minutes behind schedule, so a
@@ -252,9 +263,26 @@ export function BusMap({
           "circle-color": "rgba(0,0,0,0)",
           "circle-stroke-width": 1.5,
           "circle-stroke-color": ["get", "color"],
-          "circle-stroke-opacity": 0.75,
+          "circle-stroke-opacity": ["case", ["get", "dim"], 0.15, 0.75],
         },
       }, "bus-icons");
+
+      map.addSource("route-line", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+
+      map.addLayer({
+        id: "route-line",
+        type: "line",
+        source: "route-line",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": ["get", "color"],
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 2, 15, 5],
+          "line-opacity": 0.55,
+        },
+      }, "bus-express");
 
       // Drawn beneath the dots so the ring reads as a halo, not a badge.
       map.addLayer({
@@ -545,6 +573,8 @@ export function BusMap({
       }
       for (const routeId of routes) void gtfs.ensureRoute(routeId);
 
+      onSnapshotRef.current(snapshot.vehicles);
+
       diagnostics.snapshots++;
       diagnostics.buses = snapshot.vehicles.length;
       field.ingest(snapshot);
@@ -588,19 +618,25 @@ export function BusMap({
       // Read the preference live each frame so toggling it in the OS takes
       // effect without a reload; the check is a cheap boolean.
       const glide = !(reduceMotionQuery?.matches ?? false);
-      const features = field.positionsAt(Date.now(), glide).map((bus) => ({
-        type: "Feature" as const,
-        geometry: { type: "Point" as const, coordinates: [bus.lon, bus.lat] },
-        properties: {
-          id: bus.id,
-          label: gtfs.routeLabel(bus.routeId),
-          color: gtfs.routeColor(bus.routeId),
-          bearing: bus.bearing,
-          late: isLate(bus.delay),
-          express: isExpress(gtfs.routeLabel(bus.routeId)),
-          icon: iconName(markerShapeFor(map.getZoom()), gtfs.routeColor(bus.routeId)),
-        },
-      }));
+      const features = field.positionsAt(Date.now(), glide).map((bus) => {
+        const label = gtfs.routeLabel(bus.routeId);
+        const color = gtfs.routeColor(bus.routeId);
+        const express = isExpress(label);
+        return {
+          type: "Feature" as const,
+          geometry: { type: "Point" as const, coordinates: [bus.lon, bus.lat] },
+          properties: {
+            id: bus.id,
+            label,
+            color,
+            bearing: bus.bearing,
+            late: isLate(bus.delay),
+            express,
+            dim: shouldDim(highlightRef.current, bus.routeId, express),
+            icon: iconName(markerShapeFor(map.getZoom()), color),
+          },
+        };
+      });
 
       source.setData({ type: "FeatureCollection", features });
     }
@@ -617,6 +653,41 @@ export function BusMap({
       mapRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const gtfs = gtfsRef.current;
+    const source = map?.getSource("route-line") as maplibregl.GeoJSONSource | undefined;
+    if (!map || !gtfs || !source) return;
+
+    const routeId = highlight.routeId;
+    if (!routeId) {
+      source.setData({ type: "FeatureCollection", features: [] });
+      return;
+    }
+
+    let cancelled = false;
+    // The geometry bundle may not be loaded yet. ensureRoute is idempotent and
+    // swallows a failed fetch, so a route whose shapes never arrive simply
+    // highlights its buses with no line, rather than blocking on the fetch.
+    void gtfs.ensureRoute(routeId).then(() => {
+      if (cancelled) return;
+      const color = gtfs.routeColor(routeId);
+      const features = gtfs.shapesFor(routeId).map((points) => ({
+        type: "Feature" as const,
+        geometry: {
+          type: "LineString" as const,
+          coordinates: points.map(([lat, lon]) => [lon, lat]),
+        },
+        properties: { color },
+      }));
+      source.setData({ type: "FeatureCollection", features });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [highlight.routeId]);
 
   return (
     <div className="map-shell">

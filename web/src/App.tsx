@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { BusMap, type FeedState, type SelectedBus, type SelectedStop } from "./BusMap.js";
+import { RouteSearch } from "./RouteSearch.js";
 import {
   arrivalsErrorText,
   countdown,
@@ -11,8 +12,10 @@ import {
   isFeedStale,
   isLate,
   type ArrivalsFailure,
+  type WireVehicle,
 } from "./buses.js";
 import type { GtfsData } from "./gtfs.js";
+import type { Highlight, RouteMatch } from "./routes.js";
 
 /** Matches the stop layer's minzoom in BusMap. */
 const STOP_MIN_ZOOM = 14;
@@ -37,6 +40,11 @@ export function App() {
   const [stop, setStop] = useState<SelectedStop | null>(null);
   const [gtfs, setGtfs] = useState<GtfsData | null>(null);
   const [zoom, setZoom] = useState(11);
+  const [route, setRoute] = useState<RouteMatch | null>(null);
+  const [expressOnly, setExpressOnly] = useState(false);
+  const [vehicles, setVehicles] = useState<WireVehicle[]>([]);
+
+  const highlight: Highlight = { routeId: route?.routeId ?? null, expressOnly };
 
   return (
     <div className="app">
@@ -46,6 +54,17 @@ export function App() {
         onSelectStop={setStop}
         onReady={setGtfs}
         onZoom={setZoom}
+        onSnapshot={setVehicles}
+        highlight={highlight}
+      />
+
+      <RouteSearch
+        gtfs={gtfs}
+        selected={route}
+        liveCount={route ? vehicles.filter((v) => v.r === route.routeId).length : 0}
+        expressOnly={expressOnly}
+        onSelect={setRoute}
+        onToggleExpress={() => setExpressOnly((on) => !on)}
       />
 
       {!bus && !stop && <Hint feed={feed} zoom={zoom} />}
