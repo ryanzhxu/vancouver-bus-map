@@ -158,6 +158,18 @@ function StopCard({
   const [arrivals, setArrivals] = useState<Arrival[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Re-render once a second so every countdown in the list keeps counting down
+  // between fetches. Each row's "3 min" is computed from the client clock at
+  // render time, but this card only re-fetched every 90 seconds — so without a
+  // tick a row read "3 min" while the bus was 90 seconds away, and a bus that
+  // had already gone still read as coming. The bus card and the status bar
+  // already tick for the same reason.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     setArrivals(null);
