@@ -88,4 +88,22 @@ describe("bottom-of-screen layout", () => {
     // and the developer sees why the clearance above moved.
     expect(attributionTopPx()).toBe(86);
   });
+
+  it("caps the card height so it never overflows above the viewport", () => {
+    // .app is overflow:hidden, so a card taller than the space above its bottom
+    // anchor loses its header and × button off the top of the screen. The cap
+    // must subtract at least the bottom anchor from 100dvh, or the card can
+    // still exceed the viewport on a short (landscape) phone.
+    const maxHeight = declaration(appCss, ".buscard", "max-height");
+    const bottomAnchor = /calc\(\s*([\d.]+rem)\s*\+\s*env\(safe-area-inset-bottom\)\s*\)/.exec(
+      declaration(appCss, ".buscard", "bottom"),
+    )?.[1];
+    const capAnchor = /100dvh\s*-\s*([\d.]+rem)/.exec(maxHeight)?.[1];
+    if (!bottomAnchor || !capAnchor) throw new Error("could not read the card anchors");
+    // The cap's leading offset must match the bottom anchor, so the two stay in
+    // step if either moves, and the card top can never rise past the viewport.
+    expect(px(capAnchor)).toBeGreaterThanOrEqual(px(bottomAnchor));
+    // And the contents must scroll rather than clip once that cap is reached.
+    expect(declaration(appCss, ".buscard", "overflow-y")).toBe("auto");
+  });
 });
