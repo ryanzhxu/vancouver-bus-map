@@ -304,7 +304,14 @@ body {
   position: absolute;
   left: 0.5rem;
   right: 0.5rem;
-  bottom: calc(3.75rem + env(safe-area-inset-bottom));
+  /* Sits above the map attribution, not on top of it. The attribution container
+     is placed at 3.25rem; MapLibre's compact control adds a 10px margin and a
+     24px box on top of that, so its upper edge is 86px above the viewport
+     bottom. This card spans the full width of a phone, so any smaller offset
+     buries the credit the moment a rider taps a bus — the one thing the layout
+     must never cover. 5.75rem clears 86px with a 6px gap. web/src/layout.test.ts
+     measures both stylesheets and fails if the two ever overlap again. */
+  bottom: calc(5.75rem + env(safe-area-inset-bottom));
   left: max(0.5rem, env(safe-area-inset-left));
   right: max(0.5rem, env(safe-area-inset-right));
   z-index: 4;
