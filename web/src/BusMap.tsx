@@ -495,11 +495,26 @@ export function BusMap({
         feedTime: snapshot.feedTimestamp,
       });
 
+      // Forget the wire record of any bus BusField has given up on. A bus that
+      // ends its trip leaves the feed, and after STALE_MS its dot leaves the
+      // map — but this map kept its last record for the life of the tab, so it
+      // also grew without bound.
+      for (const id of wireById.current.keys()) {
+        if (!field.has(id)) wireById.current.delete(id);
+      }
+
       // Refresh the open bus card from the new wire data. Without this the card
       // freezes at the values it held when tapped: the countdown keeps ticking
       // down toward a stale prediction, and the next stop, delay, and sequence
       // never update as the bus advances through later polls.
-      if (selectedId.current) select(selectedId.current);
+      //
+      // If the bus is gone from the map entirely, close the card instead of
+      // re-showing a record nothing will ever update again: its countdown would
+      // run down on the client clock and sit at "arriving now" for good, beside
+      // a dot the rider can no longer see.
+      if (selectedId.current) {
+        select(field.has(selectedId.current) ? selectedId.current : undefined);
+      }
     }
 
     function animate(): void {
