@@ -219,10 +219,7 @@ function StopCard({
         <ul className="arrivals">
           {arrivals.map((arrival) => (
             <li key={arrival.tripId}>
-              <span
-                className="arrival-route"
-                style={gtfs ? { color: gtfs.routeColor(arrival.routeId) } : undefined}
-              >
+              <span className="arrival-route">
                 {gtfs ? gtfs.routeLabel(arrival.routeId) : arrival.routeId}
               </span>
               <span className="arrival-when">{countdown(arrival.time)}</span>
