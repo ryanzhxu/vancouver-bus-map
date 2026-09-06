@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   arrivalsErrorText,
   BusField,
+  countdown,
   DEPARTED_SLACK_SECONDS,
   describeAge,
+  describeArrival,
   describeDelay,
   hasDeparted,
   hintText,
@@ -395,5 +397,48 @@ describe("arrivalsErrorText", () => {
     const text = arrivalsErrorText("unavailable");
     expect(text).toBe("Arrivals are unavailable right now. Try again shortly.");
     expect(text).not.toMatch(/fetch|responded|\d{3}/);
+  });
+});
+
+describe("countdown", () => {
+  const now = 1_700_000_000_000;
+  const nowSeconds = Math.floor(now / 1000);
+
+  it("reads 'now' inside the last half-minute", () => {
+    // Under 30s the bus is right there; "0 min" would help nobody.
+    expect(countdown(nowSeconds + 10, now)).toBe("now");
+    expect(countdown(nowSeconds + 29, now)).toBe("now");
+    // A time already past still reads "now", not a negative count.
+    expect(countdown(nowSeconds - 40, now)).toBe("now");
+  });
+
+  it("counts whole minutes within the hour", () => {
+    expect(countdown(nowSeconds + 30, now)).toBe("1 min");
+    expect(countdown(nowSeconds + 4 * 60, now)).toBe("4 min");
+    expect(countdown(nowSeconds + 59 * 60, now)).toBe("59 min");
+  });
+
+  it("switches to a clock time past an hour", () => {
+    // "73 min" is harder to act on than a wall-clock time.
+    const at = countdown(nowSeconds + 90 * 60, now);
+    expect(at).not.toMatch(/\bmin\b/);
+    expect(at).toMatch(/\d/);
+  });
+});
+
+describe("describeArrival", () => {
+  const now = 1_700_000_000_000;
+  const nowSeconds = Math.floor(now / 1000);
+
+  it("names the arrival with the right verb for each countdown shape", () => {
+    expect(describeArrival(nowSeconds + 10, now)).toBe("arriving now");
+    expect(describeArrival(nowSeconds + 4 * 60, now)).toBe("arriving in 4 min");
+  });
+
+  it("says 'arriving at' a clock time past an hour, never 'in'", () => {
+    // The " min" branch must not swallow a clock time like "5:12 p.m.".
+    const text = describeArrival(nowSeconds + 90 * 60, now);
+    expect(text).toMatch(/^arriving at /);
+    expect(text).not.toContain(" min");
   });
 });

@@ -196,6 +196,42 @@ export function arrivalsErrorText(failure: ArrivalsFailure): string {
   return "Arrivals are unavailable right now. Try again shortly.";
 }
 
+/**
+ * A departure time in words, counting down, e.g. "now", "4 min", "5:12 p.m.".
+ *
+ * Under 30 seconds reads "now": the bus is right there, and a rider does not
+ * benefit from "0 min". Within the hour it counts whole minutes. Past an hour
+ * it switches to a clock time, since "73 min" is harder to act on than "5:12".
+ * `now` is a parameter so the reading is deterministic under test.
+ */
+export function countdown(epochSeconds: number, now = Date.now()): string {
+  const seconds = epochSeconds - Math.floor(now / 1000);
+  if (seconds < 30) return "now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  return new Date(epochSeconds * 1000).toLocaleTimeString("en-CA", {
+    timeZone: "America/Vancouver",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * The selected bus's live prediction as a sentence, e.g. "arriving in 4 min".
+ *
+ * Wraps countdown() with the verb a rider reads on the bus card: "now" becomes
+ * "arriving now", a minute count becomes "arriving in N min", and a clock time
+ * becomes "arriving at TIME". The branch keys on countdown's " min" suffix,
+ * which only its minute reading carries — "now" is caught first and a clock
+ * time never ends that way.
+ */
+export function describeArrival(epochSeconds: number, now = Date.now()): string {
+  const when = countdown(epochSeconds, now);
+  if (when === "now") return "arriving now";
+  if (when.endsWith(" min")) return `arriving in ${when}`;
+  return `arriving at ${when}`;
+}
+
 interface BusState {
   id: string;
   routeId: string;

@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { BusMap, type FeedState, type SelectedBus, type SelectedStop } from "./BusMap.js";
 import {
   arrivalsErrorText,
+  countdown,
   describeAge,
+  describeArrival,
   describeDelay,
   hasDeparted,
   hintText,
@@ -294,26 +296,6 @@ function StopCard({
       )}
     </div>
   );
-}
-
-function countdown(epochSeconds: number): string {
-  const seconds = epochSeconds - Math.floor(Date.now() / 1000);
-  if (seconds < 30) return "now";
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} min`;
-  return new Date(epochSeconds * 1000).toLocaleTimeString("en-CA", {
-    timeZone: "America/Vancouver",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-/** Live prediction for a selected bus, e.g. "arriving in 4 min". */
-function describeArrival(epochSeconds: number): string {
-  const when = countdown(epochSeconds);
-  if (when === "now") return "arriving now";
-  if (when.endsWith("min")) return `arriving in ${when}`;
-  return `arriving at ${when}`;
 }
 
 function StatusPill({ feed }: { feed: FeedState }) {
