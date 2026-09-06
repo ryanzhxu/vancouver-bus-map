@@ -222,12 +222,21 @@ export class BusField {
     this.dropStale(now);
   }
 
-  /** Every bus, positioned for this instant. */
-  positionsAt(now = Date.now()): RenderedBus[] {
+  /**
+   * Every bus, positioned for this instant.
+   *
+   * When `glide` is false, each bus snaps to its latest reported sample instead
+   * of tweening toward it, so nothing moves between snapshots. The map reads
+   * `prefers-reduced-motion` and passes false there: the buses then step to a
+   * new position on each poll rather than sliding, which the animation itself
+   * must honor because the glide is driven by requestAnimationFrame, not CSS —
+   * the stylesheet's reduced-motion rule cannot reach it.
+   */
+  positionsAt(now = Date.now(), glide = true): RenderedBus[] {
     const out: RenderedBus[] = [];
 
     for (const bus of this.buses.values()) {
-      const { point, bearing, moving } = this.positionOf(bus, now);
+      const { point, bearing, moving } = this.positionOf(bus, now, glide);
       out.push({
         id: bus.id,
         routeId: bus.routeId,
@@ -246,8 +255,11 @@ export class BusField {
   private positionOf(
     bus: BusState,
     now: number,
+    glide = true,
   ): { point: LatLon; bearing: number; moving: boolean } {
-    const progress = clamp01((now - bus.startedAt) / bus.durationMs);
+    // Snapping (reduced motion) shows the latest sample outright, so progress
+    // is pinned to 1 and the bus never reads as moving between polls.
+    const progress = glide ? clamp01((now - bus.startedAt) / bus.durationMs) : 1;
     const moving = progress < 1;
 
     if (bus.track && bus.fromDistance !== null && bus.toDistance !== null) {

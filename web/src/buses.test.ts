@@ -82,6 +82,22 @@ describe("BusField", () => {
       expect(field.positionsAt(1000 + 90_000)[0]!.lat).toBeCloseTo(49.3, 6);
     });
 
+    it("snaps to the latest sample instead of gliding when motion is reduced", () => {
+      const field = new BusField(noTracks);
+      field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
+      field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
+
+      // Halfway through the interval the default glide is mid-tween, but a
+      // reduced-motion caller sees the bus already at its reported position and
+      // not moving, so nothing slides between polls.
+      const mid = 1000 + 45_000;
+      expect(field.positionsAt(mid, true)[0]!.lat).toBeCloseTo(49.29, 4);
+
+      const snapped = field.positionsAt(mid, false)[0]!;
+      expect(snapped.lat).toBeCloseTo(49.3, 6);
+      expect(snapped.moving).toBe(false);
+    });
+
     it("stops at the target rather than overshooting when a snapshot is late", () => {
       const field = new BusField(noTracks);
       field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
