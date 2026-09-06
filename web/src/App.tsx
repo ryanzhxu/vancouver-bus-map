@@ -318,7 +318,7 @@ function StatusPill({ feed }: { feed: FeedState }) {
         {feed.late > 0 && (
           <span className="late-note">
             <span className="dot late" aria-hidden="true" />
-            <strong>{feed.late}</strong> 5+ min late
+            <strong>{feed.late}</strong> {feed.late === 1 ? "bus" : "buses"} 5+ min late
           </span>
         )}
       </div>
