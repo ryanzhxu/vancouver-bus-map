@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { BusMap, type FeedState, type SelectedBus, type SelectedStop } from "./BusMap.js";
-import { describeDelay, isLate } from "./buses.js";
+import { describeDelay, hintText, isLate } from "./buses.js";
 import type { GtfsData } from "./gtfs.js";
 
 /** Matches the stop layer's minzoom in BusMap. */
@@ -149,15 +149,8 @@ function BusCard({ bus, onClose }: { bus: SelectedBus; onClose: () => void }) {
  * buses gives no hint that anything is tappable.
  */
 function Hint({ feed, zoom }: { feed: FeedState; zoom: number }) {
-  const stopsVisible = zoom >= STOP_MIN_ZOOM;
-  const noBuses = feed.kind !== "live";
-
-  if (!noBuses && stopsVisible) return null;
-  if (feed.kind === "error") return null;
-
-  const message = !stopsVisible
-    ? "Zoom in to see stops and departure times"
-    : "Live buses are unavailable right now. Tap any stop for its timetable.";
+  const message = hintText(feed.kind, zoom >= STOP_MIN_ZOOM);
+  if (!message) return null;
 
   return (
     <div className="hint" role="status">

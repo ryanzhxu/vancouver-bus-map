@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   BusField,
   describeDelay,
+  hintText,
   isLate,
   LATE_THRESHOLD_SECONDS,
   type Snapshot,
@@ -251,5 +252,38 @@ describe("describeDelay", () => {
       const labelledFivePlus = /^([5-9]|\d\d+) min late$/.test(describeDelay(delay));
       expect(labelledFivePlus).toBe(isLate(delay));
     }
+  });
+});
+
+describe("hintText", () => {
+  it("stays quiet while still connecting, even zoomed in", () => {
+    // The status pill already says "Connecting…"; the hint must not race ahead
+    // and declare live buses unavailable before the feed has resolved. The old
+    // inline logic returned the "unavailable" message here, contradicting the
+    // pill on the same screen.
+    expect(hintText("connecting", true)).toBeNull();
+  });
+
+  it("guides a zoomed-out rider to zoom in, whatever the feed is doing", () => {
+    expect(hintText("connecting", false)).toBe("Zoom in to see stops and departure times");
+    expect(hintText("live", false)).toBe("Zoom in to see stops and departure times");
+    expect(hintText("schedules-only", false)).toBe(
+      "Zoom in to see stops and departure times",
+    );
+  });
+
+  it("says buses are unavailable only once the feed has settled on schedules-only", () => {
+    expect(hintText("schedules-only", true)).toBe(
+      "Live buses are unavailable right now. Tap any stop for its timetable.",
+    );
+  });
+
+  it("stays quiet when buses and stops are both showing", () => {
+    expect(hintText("live", true)).toBeNull();
+  });
+
+  it("defers to the status pill for an error", () => {
+    expect(hintText("error", true)).toBeNull();
+    expect(hintText("error", false)).toBeNull();
   });
 });

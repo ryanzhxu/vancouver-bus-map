@@ -84,6 +84,33 @@ export function describeDelay(delay: number | null): string {
   return "on time";
 }
 
+/** The feed states the map reports to the UI. Mirrors FeedState["kind"]. */
+export type FeedKind = "connecting" | "live" | "schedules-only" | "error";
+
+/**
+ * The one-line guidance shown over the map, or null when none is needed.
+ *
+ * `stopsVisible` is true once the map is zoomed far enough to draw stops
+ * (zoom 14). The message tells a rider what they can do right now: zoom in for
+ * timetables, or that live buses are unavailable but stops still work.
+ *
+ * "Live buses are unavailable" is only honest once the feed has actually
+ * settled on schedules-only. While still "connecting" we do not yet know, and
+ * the status pill already says "Connecting…", so claiming buses are gone would
+ * contradict it on the same screen. An error surfaces its own message in the
+ * status pill, so the hint stays quiet there too.
+ */
+export function hintText(kind: FeedKind, stopsVisible: boolean): string | null {
+  if (kind === "error") return null;
+  if (kind === "live" && stopsVisible) return null;
+  if (!stopsVisible) return "Zoom in to see stops and departure times";
+  if (kind === "schedules-only") {
+    return "Live buses are unavailable right now. Tap any stop for its timetable.";
+  }
+  // Zoomed in but still connecting: not concluded yet, so say nothing.
+  return null;
+}
+
 interface BusState {
   id: string;
   routeId: string;
