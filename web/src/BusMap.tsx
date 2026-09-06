@@ -14,7 +14,8 @@ const BASEMAP = "https://tiles.openfreemap.org/styles/positron";
 export type FeedState =
   | { kind: "connecting" }
   | { kind: "live"; buses: number; feedTime: number | null }
-  | { kind: "waiting"; reason: string }
+  /** Static timetables work; the realtime feed does not. */
+  | { kind: "schedules-only" }
   | { kind: "error"; message: string };
 
 export interface SelectedStop {
@@ -40,11 +41,13 @@ export function BusMap({
   onSelect,
   onSelectStop,
   onReady,
+  onZoom,
 }: {
   onState: (state: FeedState) => void;
   onSelect: (bus: SelectedBus | null) => void;
   onSelectStop: (stop: SelectedStop | null) => void;
   onReady: (gtfs: GtfsData) => void;
+  onZoom: (zoom: number) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
@@ -62,6 +65,8 @@ export function BusMap({
   onSelectStopRef.current = onSelectStop;
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
+  const onZoomRef = useRef(onZoom);
+  onZoomRef.current = onZoom;
   /** Latest wire record per bus, for the detail sheet. */
   const wireById = useRef(new Map<string, { r: string; d?: string; p: string; s: number }>());
   const selectedId = useRef<string | null>(null);
@@ -98,6 +103,7 @@ export function BusMap({
     map.on("render", () => {
       diagnostics.mapPainted = true;
     });
+    map.on("zoomend", () => onZoomRef.current(map.getZoom()));
     const resizeObserver = new ResizeObserver(() => map.resize());
     resizeObserver.observe(container.current);
 
@@ -366,7 +372,9 @@ export function BusMap({
       try {
         const response = await fetch("/api/live/snapshot");
         if (response.status === 503) {
-          onStateRef.current({ kind: "waiting", reason: "waiting for the first poll" });
+          // No snapshot yet. Stops and timetables still work, so say that
+          // rather than implying the whole map is broken.
+          onStateRef.current({ kind: "schedules-only" });
           return;
         }
         if (!response.ok) return;

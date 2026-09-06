@@ -438,3 +438,30 @@ body {
   color: var(--ink-3);
   font-size: 0.88rem;
 }
+
+/* ---------- guidance ---------- */
+
+.hint {
+  position: absolute;
+  /* Anchored top-left, not bottom-centre. The bottom of the map already holds
+     the status bar and the attribution, and the attribution wraps to two lines
+     on a 320px screen — so any fixed bottom offset eventually collides with a
+     licence notice we are not allowed to cover. The top is empty except for
+     the zoom controls, which the right inset clears. */
+  top: max(0.75rem, calc(env(safe-area-inset-top) + 0.75rem));
+  left: max(0.75rem, env(safe-area-inset-left));
+  right: calc(3.25rem + env(safe-area-inset-right));
+  z-index: 3;
+  max-width: 22rem;
+  padding: 0.5rem 0.85rem;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--shadow);
+  color: var(--ink-2);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  text-align: center;
+  /* Guidance should never block a tap on the map behind it. */
+  pointer-events: none;
+}

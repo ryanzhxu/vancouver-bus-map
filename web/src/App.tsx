@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { BusMap, type FeedState, type SelectedBus, type SelectedStop } from "./BusMap.js";
 import type { GtfsData } from "./gtfs.js";
 
+/** Matches the stop layer's minzoom in BusMap. */
+const STOP_MIN_ZOOM = 14;
+
 interface Arrival {
   routeId: string;
   tripId: string;
@@ -21,10 +24,19 @@ export function App() {
   const [bus, setBus] = useState<SelectedBus | null>(null);
   const [stop, setStop] = useState<SelectedStop | null>(null);
   const [gtfs, setGtfs] = useState<GtfsData | null>(null);
+  const [zoom, setZoom] = useState(11);
 
   return (
     <div className="app">
-      <BusMap onState={setFeed} onSelect={setBus} onSelectStop={setStop} onReady={setGtfs} />
+      <BusMap
+        onState={setFeed}
+        onSelect={setBus}
+        onSelectStop={setStop}
+        onReady={setGtfs}
+        onZoom={setZoom}
+      />
+
+      {!bus && !stop && <Hint feed={feed} zoom={zoom} />}
 
       {bus && <BusCard bus={bus} onClose={() => setBus(null)} />}
       {stop && <StopCard stop={stop} gtfs={gtfs} onClose={() => setStop(null)} />}
@@ -79,6 +91,30 @@ function BusCard({ bus, onClose }: { bus: SelectedBus; onClose: () => void }) {
           <dd>{bus.stopSequence || "—"}</dd>
         </div>
       </dl>
+    </div>
+  );
+}
+
+/**
+ * Tells the reader what they can actually do right now.
+ *
+ * Stops only draw from zoom 14, so at the opening view an empty map with no
+ * buses gives no hint that anything is tappable.
+ */
+function Hint({ feed, zoom }: { feed: FeedState; zoom: number }) {
+  const stopsVisible = zoom >= STOP_MIN_ZOOM;
+  const noBuses = feed.kind !== "live";
+
+  if (!noBuses && stopsVisible) return null;
+  if (feed.kind === "error") return null;
+
+  const message = !stopsVisible
+    ? "Zoom in to see stops and departure times"
+    : "Live buses are unavailable right now. Tap any stop for its timetable.";
+
+  return (
+    <div className="hint" role="status">
+      {message}
     </div>
   );
 }
@@ -202,11 +238,11 @@ function StatusPill({ feed }: { feed: FeedState }) {
     );
   }
 
-  if (feed.kind === "waiting") {
+  if (feed.kind === "schedules-only") {
     return (
       <div className="status">
         <span className="dot warn" aria-hidden="true" />
-        {feed.reason}
+        Timetables only &middot; no live buses
       </div>
     );
   }
