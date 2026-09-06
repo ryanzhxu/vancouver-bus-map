@@ -46,13 +46,13 @@ export function mergeArrivals(options: {
   const limit = options.limit ?? 8;
   const nowEpoch = Math.floor(now.getTime() / 1000);
 
-  const byTrip = new Map<string, Arrival>();
+  const liveByTrip = new Map<string, Arrival>();
 
   // Live first — these win wherever they exist.
   for (const prediction of predictions) {
     if (prediction.time === null) continue;
     if (prediction.time < nowEpoch - 60) continue;
-    byTrip.set(prediction.tripId, {
+    liveByTrip.set(prediction.tripId, {
       routeId: prediction.routeId,
       tripId: prediction.tripId,
       time: prediction.time,
@@ -60,6 +60,13 @@ export function mergeArrivals(options: {
       delay: prediction.delay,
     });
   }
+
+  // Scheduled departures, keyed by service day *and* trip. A nightly trip runs
+  // on two service days at once just after midnight — yesterday's instance is
+  // arriving now, today's is a day away. They share a trip id but are distinct
+  // departures, so keying by trip id alone would hide the imminent one behind
+  // the day-away one.
+  const scheduled = new Map<string, Arrival>();
 
   if (schedule && calendar) {
     for (const window of activeWindows(now)) {
@@ -72,12 +79,16 @@ export function mergeArrivals(options: {
 
         const serviceId = schedule.s[serviceIndex];
         if (serviceId === undefined || !active.has(serviceId)) continue;
-        if (byTrip.has(tripId)) continue;
+        // A live prediction for this trip already supersedes the timetable.
+        if (liveByTrip.has(tripId)) continue;
+
+        const key = `${window.date}\t${tripId}`;
+        if (scheduled.has(key)) continue;
 
         const routeId = schedule.r[routeIndex];
         if (routeId === undefined) continue;
 
-        byTrip.set(tripId, {
+        scheduled.set(key, {
           routeId,
           tripId,
           time: epochFor(window.date, seconds),
@@ -88,7 +99,7 @@ export function mergeArrivals(options: {
     }
   }
 
-  return [...byTrip.values()]
+  return [...liveByTrip.values(), ...scheduled.values()]
     .filter((arrival) => arrival.time >= nowEpoch - 60)
     .sort((a, b) => a.time - b.time)
     .slice(0, limit);

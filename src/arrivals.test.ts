@@ -180,4 +180,35 @@ describe("mergeArrivals", () => {
     expect(result.map((a) => a.tripId)).toEqual(["owl"]);
     expect(result[0]!.time).toBe(epochFor("20260905", at(24, 45)));
   });
+
+  it("shows tonight's post-midnight bus, not tomorrow's, when the service runs both days", () => {
+    // 00:30 Sunday. A nightly 24:30 owl on a service that runs every day.
+    // Yesterday's instance (Saturday service) is arriving now; today's
+    // (Sunday service) is a day away. Both are real departures, so both may
+    // appear, but the one arriving now must not be hidden behind the day-away
+    // run just because they share a trip id.
+    const lateNight = new Date("2026-09-06T07:30:00Z"); // 00:30 Sunday PDT
+    const daily: CalendarData = {
+      services: { daily: { days: [1, 1, 1, 1, 1, 1, 1], from: "20260101", to: "20261231" } },
+      exceptions: {},
+    };
+    const dailySchedule: StopSchedule = {
+      r: ["route-N"],
+      s: ["daily"],
+      d: [[0, 0, at(24, 30), "owl"]],
+    };
+
+    const result = mergeArrivals({
+      schedule: dailySchedule,
+      predictions: [],
+      calendar: daily,
+      now: lateNight,
+    });
+
+    const tonight = epochFor("20260905", at(24, 30));
+    // Tonight's arrival is present at all...
+    expect(result.map((a) => a.time)).toContain(tonight);
+    // ...and it is the soonest, so it sorts first.
+    expect(result[0]!.time).toBe(tonight);
+  });
 });
