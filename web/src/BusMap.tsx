@@ -6,7 +6,14 @@ import {
   nextBasemap,
   type BasemapProvider,
 } from "./basemap.js";
-import { BusField, isLate, markerShapeFor, type Snapshot, type WireVehicle } from "./buses.js";
+import {
+  BusField,
+  findBunches,
+  isLate,
+  markerShapeFor,
+  type Snapshot,
+  type WireVehicle,
+} from "./buses.js";
 import { DEFAULT_ROUTE_COLOR, GtfsData } from "./gtfs.js";
 import { distinctRouteColors, drawMarker, iconName } from "./icons.js";
 import { isExpress, shouldDim, type Highlight } from "./routes.js";
@@ -39,7 +46,7 @@ const reduceMotionQuery =
 
 export type FeedState =
   | { kind: "connecting" }
-  | { kind: "live"; buses: number; late: number; feedTime: number | null }
+  | { kind: "live"; buses: number; late: number; bunched: number; feedTime: number | null }
   /** Static timetables work; the realtime feed does not. */
   | { kind: "schedules-only" }
   | { kind: "error"; message: string };
@@ -118,6 +125,16 @@ export function BusMap({
     new Map<string, { r: string; d?: string; p: string; s: number; a?: number; l?: number }>(),
   );
   const selectedId = useRef<string | null>(null);
+  /**
+   * Ids of buses currently bunched with another on their route.
+   *
+   * Recomputed once per snapshot in apply(), not once per frame in animate():
+   * findBunches groups by route then compares pairwise within each group, and
+   * the busiest routes carry 40+ buses at peak, so running it at 60fps would be
+   * thousands of distance checks a second for a number that only changes every
+   * 90-second poll. animate() just reads this ref.
+   */
+  const bunchedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!container.current) return;
@@ -272,6 +289,23 @@ export function BusMap({
           "circle-stroke-width": 1.5,
           "circle-stroke-color": ["get", "color"],
           "circle-stroke-opacity": ["case", ["get", "dim"], 0.15, 0.75],
+        },
+      }, "bus-icons");
+
+      // A second ring, dashed, for a bus that has closed up on another on its
+      // own route. Distinct from the express ring by pattern rather than colour,
+      // for the same reason the express ring avoids hue.
+      map.addLayer({
+        id: "bus-bunched",
+        type: "circle",
+        source: "buses",
+        filter: ["==", ["get", "bunched"], true],
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 4, 12, 6, 15, 10],
+          "circle-color": "#9b59b6",
+          "circle-opacity": 0.22,
+          "circle-stroke-width": 1,
+          "circle-stroke-color": "#9b59b6",
         },
       }, "bus-icons");
 
@@ -592,10 +626,17 @@ export function BusMap({
       diagnostics.snapshots++;
       diagnostics.buses = snapshot.vehicles.length;
       field.ingest(snapshot);
+
+      // Computed once here, not per frame in animate(), and shared by the map
+      // layer and the status bar count below so the two can never disagree.
+      const bunches = findBunches(field.positionsAt(Date.now()));
+      bunchedRef.current = new Set(bunches.flatMap((b) => b.busIds));
+
       onStateRef.current({
         kind: "live",
         buses: snapshot.vehicles.length,
         late: snapshot.vehicles.filter((v) => isLate(v.l)).length,
+        bunched: bunchedRef.current.size,
         feedTime: snapshot.feedTimestamp,
       });
 
@@ -637,6 +678,7 @@ export function BusMap({
       // effect without a reload; the check is a cheap boolean.
       const glide = !(reduceMotionQuery?.matches ?? false);
       const positions = field.positionsAt(Date.now(), glide);
+      const bunched = bunchedRef.current;
       const features = positions.map((bus) => {
         const label = gtfs.routeLabel(bus.routeId);
         const color = gtfs.routeColor(bus.routeId);
@@ -650,6 +692,7 @@ export function BusMap({
             color,
             bearing: bus.bearing,
             late: isLate(bus.delay),
+            bunched: bunched.has(bus.id),
             express,
             dim: shouldDim(highlightRef.current, bus.routeId, express),
             icon: iconName(markerShapeFor(map.getZoom()), color),

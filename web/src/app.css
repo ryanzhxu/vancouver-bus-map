@@ -159,6 +159,9 @@ body {
 .dot.late {
   background: var(--late);
 }
+.dot.bunched {
+  background: #9b59b6;
+}
 
 /* The map legend: ties the orange halo on the map to the five-minute threshold
    in words. Wraps to the next line as one unit rather than breaking the phrase. */
@@ -171,6 +174,20 @@ body {
 }
 
 .late-note strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Same layout as .late-note: a dot plus a count, wrapping as one unit. */
+.bunch-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.bunch-note strong {
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }

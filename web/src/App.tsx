@@ -378,6 +378,12 @@ function StatusPill({ feed }: { feed: FeedState }) {
             <strong>{feed.late}</strong> {feed.late === 1 ? "bus" : "buses"} 5+ min late
           </span>
         )}
+        {feed.bunched > 0 && (
+          <span className="bunch-note">
+            <span className="dot bunched" aria-hidden="true" />
+            <strong>{feed.bunched}</strong> bunched
+          </span>
+        )}
       </div>
     );
   }

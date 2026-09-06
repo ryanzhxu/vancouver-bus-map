@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   arrivalsErrorText,
+  BUNCH_METRES,
   BUS_ICON_MIN_ZOOM,
   BusField,
   countdown,
@@ -8,6 +9,7 @@ import {
   describeAge,
   describeArrival,
   describeDelay,
+  findBunches,
   hasDeparted,
   hintText,
   isFeedStale,
@@ -16,6 +18,7 @@ import {
   markerShapeFor,
   shouldClearFollow,
   STALE_FEED_SECONDS,
+  type RenderedBus,
   type Snapshot,
   type WireVehicle,
 } from "./buses.js";
@@ -475,5 +478,89 @@ describe("shouldClearFollow", () => {
 
   it("stays cleared when nothing was being followed", () => {
     expect(shouldClearFollow({ id: "bus-1" }, null)).toBe(false);
+  });
+});
+
+const rendered = (over: Partial<RenderedBus> = {}): RenderedBus => ({
+  id: "a",
+  routeId: "route1",
+  tripId: "trip1",
+  lat: 49.28,
+  lon: -123.12,
+  bearing: 0,
+  moving: true,
+  delay: null,
+  ...over,
+});
+
+/** Roughly north by `metres`, at Vancouver's latitude. */
+const northOf = (lat: number, metres: number) => lat + metres / 111_320;
+
+describe("findBunches", () => {
+  it("finds two buses on one route sitting on top of each other", () => {
+    const bunches = findBunches([
+      rendered({ id: "a" }),
+      rendered({ id: "b", lat: northOf(49.28, 80) }),
+    ]);
+    expect(bunches).toHaveLength(1);
+    expect([...(bunches[0]?.busIds ?? [])].sort()).toEqual(["a", "b"]);
+  });
+
+  it("leaves the same two alone once they are properly spaced", () => {
+    expect(
+      findBunches([rendered({ id: "a" }), rendered({ id: "b", lat: northOf(49.28, 900) })]),
+    ).toEqual([]);
+  });
+
+  it("does not bunch buses on different routes", () => {
+    expect(
+      findBunches([
+        rendered({ id: "a", routeId: "route1" }),
+        rendered({ id: "b", routeId: "route2", lat: northOf(49.28, 50) }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("does not bunch buses going opposite ways", () => {
+    // Two buses passing on the same street are the timetable working, not
+    // bunching. Only the same direction counts.
+    expect(
+      findBunches([
+        rendered({ id: "a", bearing: 0 }),
+        rendered({ id: "b", bearing: 180, lat: northOf(49.28, 50) }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("does not bunch buses parked at a terminus", () => {
+    expect(
+      findBunches([
+        rendered({ id: "a", moving: false }),
+        rendered({ id: "b", moving: false, lat: northOf(49.28, 30) }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("groups three close buses as one bunch, not three pairs", () => {
+    const bunches = findBunches([
+      rendered({ id: "a" }),
+      rendered({ id: "b", lat: northOf(49.28, 60) }),
+      rendered({ id: "c", lat: northOf(49.28, 120) }),
+    ]);
+    expect(bunches).toHaveLength(1);
+    expect(bunches[0]?.busIds).toHaveLength(3);
+  });
+
+  it("returns nothing for an empty field or a single bus", () => {
+    expect(findBunches([])).toEqual([]);
+    expect(findBunches([rendered()])).toEqual([]);
+  });
+
+  it("treats bearings either side of north as the same direction", () => {
+    const bunches = findBunches([
+      rendered({ id: "a", bearing: 350 }),
+      rendered({ id: "b", bearing: 10, lat: northOf(49.28, 50) }),
+    ]);
+    expect(bunches).toHaveLength(1);
   });
 });

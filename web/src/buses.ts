@@ -2,6 +2,7 @@ import {
   bearingAt,
   bearingBetween,
   buildTrack,
+  distance,
   lerp,
   pointAtDistance,
   projectOntoTrack,
@@ -447,4 +448,97 @@ export function shouldClearFollow(
 ): boolean {
   if (followId === null) return false;
   return !next || next.id !== followId;
+}
+
+/** Two buses on one route closer than this, going the same way, are bunched. */
+export const BUNCH_METRES = 200;
+
+/**
+ * How far two headings may differ and still count as the same direction.
+ *
+ * Generous on purpose. The bearing is derived from route geometry rather than
+ * reported, so two buses a block apart on a curve genuinely differ by more than
+ * a few degrees. Ninety degrees would admit a bus turning off the route;
+ * forty-five separates "following each other" from "passing each other", which
+ * is the distinction that matters.
+ */
+export const BUNCH_BEARING_TOLERANCE = 45;
+
+/**
+ * geo.ts measures in equivalent degrees of latitude. One degree of latitude is
+ * about 111.32 km, which is what converts BUNCH_METRES into those units.
+ */
+const METRES_PER_DEGREE = 111_320;
+
+export interface Bunch {
+  routeId: string;
+  busIds: string[];
+}
+
+/** The smaller angle between two compass bearings, 0-180. */
+export function bearingDelta(a: number, b: number): number {
+  const d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
+/**
+ * Groups of buses on the same route that have closed up on each other — the
+ * "nothing for twenty minutes, then three at once" every rider knows.
+ *
+ * Two corrections stop it crying wolf. Both buses must be moving, because a
+ * terminus or a layover parks several buses together by design and that is not
+ * bunching. And both must be heading the same way, because two buses passing in
+ * opposite directions on the same street is the timetable working correctly.
+ *
+ * Grouping is transitive: three buses in a line form one bunch of three, not
+ * three overlapping pairs, which is how a rider would describe it.
+ */
+export function findBunches(buses: RenderedBus[], metres = BUNCH_METRES): Bunch[] {
+  const threshold = metres / METRES_PER_DEGREE;
+
+  const byRoute = new Map<string, RenderedBus[]>();
+  for (const bus of buses) {
+    if (!bus.moving) continue;
+    const fleet = byRoute.get(bus.routeId);
+    if (fleet) fleet.push(bus);
+    else byRoute.set(bus.routeId, [bus]);
+  }
+
+  const bunches: Bunch[] = [];
+
+  for (const [routeId, fleet] of byRoute) {
+    if (fleet.length < 2) continue;
+
+    // Union-find by repeated merging: fleets on one route are small enough that
+    // the simple form is faster to read than a proper union-find structure.
+    const groups: RenderedBus[][] = [];
+
+    for (const bus of fleet) {
+      const near = groups.filter((group) =>
+        group.some(
+          (other) =>
+            distance([bus.lat, bus.lon], [other.lat, other.lon]) <= threshold &&
+            bearingDelta(bus.bearing, other.bearing) <= BUNCH_BEARING_TOLERANCE,
+        ),
+      );
+
+      if (near.length === 0) {
+        groups.push([bus]);
+        continue;
+      }
+
+      // Joining two existing groups merges them, so a chain stays one bunch.
+      const merged = near.flat();
+      merged.push(bus);
+      for (const group of near) groups.splice(groups.indexOf(group), 1);
+      groups.push(merged);
+    }
+
+    for (const group of groups) {
+      if (group.length < 2) continue;
+      bunches.push({ routeId, busIds: group.map((bus) => bus.id) });
+    }
+  }
+
+  return bunches;
 }
