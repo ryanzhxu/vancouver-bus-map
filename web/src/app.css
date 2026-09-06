@@ -350,6 +350,27 @@ body {
   font-weight: 700;
 }
 
+/* ---------- system pulse panel ---------- */
+
+.pulse {
+  position: absolute;
+  right: 12px;
+  bottom: 56px;
+  width: min(280px, calc(100vw - 24px));
+  z-index: 6;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 0.6rem 0.75rem 0.75rem;
+}
+.pulse-head { display: flex; justify-content: space-between; align-items: center; }
+.pulse h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; margin: 10px 0 4px; }
+.pulse-list { list-style: none; margin: 0; padding: 0; }
+.pulse-list button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; }
+.pulse-value { margin-left: auto; font-variant-numeric: tabular-nums; }
+.pulse-sub { opacity: 0.65; font-size: 11px; }
+
 /* ---------- about sheet ---------- */
 
 .sheet-backdrop {

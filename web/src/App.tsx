@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { BusMap, type FeedState, type SelectedBus, type SelectedStop } from "./BusMap.js";
 import { RouteSearch } from "./RouteSearch.js";
+import { SystemPulse } from "./SystemPulse.js";
 import {
   arrivalsErrorText,
   countdown,
@@ -15,8 +16,8 @@ import {
   type ArrivalsFailure,
   type WireVehicle,
 } from "./buses.js";
-import type { GtfsData } from "./gtfs.js";
-import type { Highlight, RouteMatch } from "./routes.js";
+import { DEFAULT_ROUTE_COLOR, type GtfsData } from "./gtfs.js";
+import { busiestRoutes, worstDelayedRoutes, type Highlight, type RouteMatch } from "./routes.js";
 
 /** Matches the stop layer's minzoom in BusMap. */
 const STOP_MIN_ZOOM = 14;
@@ -45,8 +46,13 @@ export function App() {
   const [expressOnly, setExpressOnly] = useState(false);
   const [vehicles, setVehicles] = useState<WireVehicle[]>([]);
   const [followId, setFollowId] = useState<string | null>(null);
+  const [showPulse, setShowPulse] = useState(false);
 
   const highlight: Highlight = { routeId: route?.routeId ?? null, expressOnly };
+  const labelFor = (routeId: string) => gtfs?.routeLabel(routeId) ?? routeId;
+  const colorFor = (routeId: string) => gtfs?.routeColor(routeId) ?? DEFAULT_ROUTE_COLOR;
+  const busiest = busiestRoutes(vehicles, labelFor);
+  const worst = worstDelayedRoutes(vehicles, labelFor);
 
   return (
     <div className="app">
@@ -96,12 +102,33 @@ export function App() {
         <StatusPill feed={feed} />
         <button
           className="about-button"
+          onClick={() => setShowPulse((on) => !on)}
+          aria-label="System pulse"
+        >
+          Pulse
+        </button>
+        <button
+          className="about-button"
           onClick={() => setShowAbout(true)}
           aria-label="About this map"
         >
           About
         </button>
       </div>
+
+      {showPulse && (
+        <SystemPulse
+          busiest={busiest}
+          worst={worst}
+          colorFor={colorFor}
+          onSelectRoute={(routeId) => {
+            const info = gtfs?.routes.get(routeId);
+            if (info) setRoute({ routeId, label: labelFor(routeId), name: info.n });
+            setShowPulse(false);
+          }}
+          onClose={() => setShowPulse(false)}
+        />
+      )}
 
       {showAbout && <AboutSheet onClose={() => setShowAbout(false)} />}
     </div>

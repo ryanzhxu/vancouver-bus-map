@@ -718,7 +718,6 @@ export function BusMap({
             color,
             bearing: bus.bearing,
             late: isLate(bus.delay),
-            bunched,
             express,
             dim: shouldDim(highlightRef.current, bus.routeId, express),
             icon: iconName(markerShapeFor(map.getZoom()), color),
