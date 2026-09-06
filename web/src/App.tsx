@@ -58,7 +58,27 @@ export function App() {
   );
 }
 
+/**
+ * Dismiss an open card or sheet when the user presses Escape.
+ *
+ * Every card is a role="dialog", but the map behind it has no keyboard exit, so
+ * without this a keyboard or switch user who opens the bus card or the stop card
+ * can close it only by finding the small × button. The About sheet already
+ * closed on Escape; this shares one handler so all three behave the same.
+ */
+function useEscapeToClose(onClose: () => void): void {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+}
+
 function BusCard({ bus, onClose }: { bus: SelectedBus; onClose: () => void }) {
+  useEscapeToClose(onClose);
+
   // Re-render once a second so the countdown keeps ticking down while the card
   // is open, instead of freezing at the value it had when the bus was tapped.
   const [, setTick] = useState(0);
@@ -155,6 +175,8 @@ function StopCard({
   gtfs: GtfsData | null;
   onClose: () => void;
 }) {
+  useEscapeToClose(onClose);
+
   const [arrivals, setArrivals] = useState<Arrival[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -329,13 +351,7 @@ function StatusPill({ feed }: { feed: FeedState }) {
 }
 
 function AboutSheet({ onClose }: { onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeToClose(onClose);
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
