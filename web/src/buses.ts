@@ -104,6 +104,29 @@ export function describeAge(feedTime: number | null, now = Date.now()): string {
 }
 
 /**
+ * How old the live feed may be before its indicator reads stale, in seconds.
+ *
+ * The poller updates every 90 seconds, so a healthy feed's age stays under a
+ * few minutes even with the feed's own build lag. Past this the feed is not
+ * updating: the poller sleeps 23:00–07:00 Pacific and the map then carries the
+ * last evening poll, and a daytime feed outage ages the same way. Five minutes
+ * clears normal jitter (about two poll cycles) yet still catches both cases.
+ */
+export const STALE_FEED_SECONDS = 300;
+
+/**
+ * True when the live feed is old enough that its positions are no longer
+ * current. The status dot then reads amber instead of the green of a fresh
+ * feed, so a rider is never told hours-old overnight positions are live beside
+ * a green light. A missing feedTime is not stale: the "connecting" and
+ * "schedules-only" states own that case, not "live".
+ */
+export function isFeedStale(feedTime: number | null, now = Date.now()): boolean {
+  if (!feedTime) return false;
+  return now / 1000 - feedTime > STALE_FEED_SECONDS;
+}
+
+/**
  * How long a departure keeps showing after its time passes, in seconds.
  *
  * Mirrors the "keep a minute of slack so a bus that just left is still listed"
