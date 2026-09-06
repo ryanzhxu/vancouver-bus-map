@@ -16,6 +16,11 @@
   --ink-3: #626c75;
   --rule: #d4dae1;
   --accent: #0b6ea8;
+  /* Background for filled buttons that carry white text. Kept dark in both
+     themes: the dark theme lightens --accent to #58a6d8 for link legibility on
+     the dark surface, but white text on that reaches only 2.67:1 — below WCAG
+     AA. This token is not lightened, so #fff stays at 5.51:1 either way. */
+  --accent-fill: #0b6ea8;
   --ok: #0e6c46;
   --warn: #8a5200;
   --stop: #9e2b22;
@@ -241,7 +246,7 @@ body {
   font: inherit;
   font-weight: 600;
   color: #fff;
-  background: var(--accent);
+  background: var(--accent-fill);
   border: 0;
   border-radius: 10px;
   cursor: pointer;
