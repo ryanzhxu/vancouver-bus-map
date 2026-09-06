@@ -39,7 +39,7 @@ export async function handleStop(
     predictions,
     calendar,
     now: new Date(),
-    limit: Number(url.searchParams.get("limit") ?? 8),
+    limit: parseLimit(url.searchParams.get("limit")),
   });
 
   return Response.json(
@@ -55,6 +55,20 @@ export async function handleStop(
       headers: { "cache-control": "public, max-age=20" },
     },
   );
+}
+
+/**
+ * The `limit` query parameter, defaulting to 8.
+ *
+ * An absent, empty, non-numeric, fractional, zero, or negative value all fall
+ * back to the default. A bad value must never reach mergeArrivals: it slices by
+ * this number, and `slice(0, NaN)` or `slice(0, 0)` would return no arrivals —
+ * hiding the entire timetable for a stop that is running normal service.
+ */
+export function parseLimit(raw: string | null): number {
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) return 8;
+  return value;
 }
 
 async function loadSchedule(
