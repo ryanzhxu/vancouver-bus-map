@@ -75,6 +75,20 @@ describe("readFields", () => {
   it("throws on a truncated varint", () => {
     expect(() => [...readFields(new Uint8Array([0x08, 0x80]))]).toThrow(/past end of buffer/);
   });
+
+  it("throws its own error on a truncated fixed32 field", () => {
+    // Field 3, wire type 5, needs four bytes but only one follows.
+    expect(() => [...readFields(new Uint8Array([...tag(3, 5), 0x00]))]).toThrow(
+      /overruns buffer/,
+    );
+  });
+
+  it("throws its own error on a truncated fixed64 field", () => {
+    // Field 3, wire type 1, needs eight bytes but only one follows.
+    expect(() => [...readFields(new Uint8Array([...tag(3, 1), 0x00]))]).toThrow(
+      /overruns buffer/,
+    );
+  });
 });
 
 describe("decodeHeader", () => {

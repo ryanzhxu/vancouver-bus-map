@@ -397,6 +397,10 @@ export function BusMap({
       // The socket only pushes on a poll tick, so pull once immediately to
       // avoid an empty map for up to 90 seconds after load.
       void pollOnce();
+      // A dropped socket runs connect() again to reconnect. Clear the previous
+      // interval first, or every reconnect would leave another 60s poll running
+      // for the life of the tab.
+      if (pollTimer) clearInterval(pollTimer);
       pollTimer = window.setInterval(() => void pollOnce(), 60_000);
     }
 

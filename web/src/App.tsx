@@ -79,7 +79,12 @@ function BusCard({ bus, onClose }: { bus: SelectedBus; onClose: () => void }) {
           <dd>
             {bus.nextStopName ?? "Unknown"}
             {bus.nextStopAccessible === 1 && (
-              <span className="wheelchair" title="Wheelchair accessible">
+              <span
+                className="wheelchair"
+                role="img"
+                aria-label="Wheelchair accessible"
+                title="Wheelchair accessible"
+              >
                 {" "}
                 &#9855;
               </span>
@@ -164,7 +169,17 @@ function StopCard({
           <strong>{stop.name}</strong>
           <span className="sub">
             {stop.code && `Stop ${stop.code}`}
-            {stop.accessible === 1 && <span className="wheelchair"> &#9855;</span>}
+            {stop.accessible === 1 && (
+              <span
+                className="wheelchair"
+                role="img"
+                aria-label="Wheelchair accessible"
+                title="Wheelchair accessible"
+              >
+                {" "}
+                &#9855;
+              </span>
+            )}
           </span>
         </div>
         <button className="buscard-close" onClick={onClose} aria-label="Close">

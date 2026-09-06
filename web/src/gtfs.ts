@@ -104,8 +104,12 @@ export class GtfsData {
           this.tracks.set(shapeId, buildTrack(points));
         }
       } catch {
-        // A missing bundle is not fatal: those buses fall back to straight-line
-        // movement rather than disappearing from the map.
+        // A failed load is not fatal: those buses fall back to straight-line
+        // movement rather than disappearing from the map. But it must not be
+        // cached as done — a dropped fetch on a flaky phone connection would
+        // otherwise strand this route on straight lines for the life of the
+        // tab. Forget it so the next snapshot retries once the network recovers.
+        this.routeLoads.delete(routeId);
       }
     })();
 
