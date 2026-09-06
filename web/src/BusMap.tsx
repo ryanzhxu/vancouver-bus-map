@@ -6,8 +6,10 @@ import {
   nextBasemap,
   type BasemapProvider,
 } from "./basemap.js";
-import { BusField, isLate, type Snapshot } from "./buses.js";
-import { GtfsData } from "./gtfs.js";
+import { BusField, isLate, markerShapeFor, type Snapshot, type WireVehicle } from "./buses.js";
+import { DEFAULT_ROUTE_COLOR, GtfsData } from "./gtfs.js";
+import { distinctRouteColors, drawMarker, iconName } from "./icons.js";
+import { isExpress, shouldDim, type Highlight } from "./routes.js";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 /** Metro Vancouver, framed to hold Richmond through North Van. */
@@ -70,12 +72,20 @@ export function BusMap({
   onSelectStop,
   onReady,
   onZoom,
+  onSnapshot,
+  highlight,
+  followId,
+  onStopFollowing,
 }: {
   onState: (state: FeedState) => void;
   onSelect: (bus: SelectedBus | null) => void;
   onSelectStop: (stop: SelectedStop | null) => void;
   onReady: (gtfs: GtfsData) => void;
   onZoom: (zoom: number) => void;
+  onSnapshot: (vehicles: WireVehicle[]) => void;
+  highlight: Highlight;
+  followId: string | null;
+  onStopFollowing: () => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
@@ -95,6 +105,14 @@ export function BusMap({
   onReadyRef.current = onReady;
   const onZoomRef = useRef(onZoom);
   onZoomRef.current = onZoom;
+  const onSnapshotRef = useRef(onSnapshot);
+  onSnapshotRef.current = onSnapshot;
+  const highlightRef = useRef(highlight);
+  highlightRef.current = highlight;
+  const followRef = useRef(followId);
+  followRef.current = followId;
+  const onStopFollowingRef = useRef(onStopFollowing);
+  onStopFollowingRef.current = onStopFollowing;
   /** Latest wire record per bus, for the detail sheet. */
   const wireById = useRef(
     new Map<string, { r: string; d?: string; p: string; s: number; a?: number; l?: number }>(),
@@ -200,18 +218,25 @@ export function BusMap({
         data: { type: "FeatureCollection", features: [] },
       });
 
-      // A triangle reads as "heading somewhere" in a way a dot does not, and
-      // TransLink sends no bearing, so this is the only cue of direction.
       map.addLayer({
-        id: "bus-dots",
-        type: "circle",
+        id: "bus-icons",
+        type: "symbol",
         source: "buses",
+        layout: {
+          "icon-image": ["get", "icon"],
+          "icon-rotate": ["get", "bearing"],
+          "icon-rotation-alignment": "map",
+          "icon-size": ["interpolate", ["linear"], ["zoom"], 9, 0.45, 12, 0.7, 15, 1],
+          // ~1,500 symbols cannot afford collision detection, and a bus hidden
+          // because a neighbour got there first would be a lie about the fleet.
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+          // While icon-allow-overlap is true, a higher sort key draws on top of
+          // a lower one, so express (1) wins over local (0) where they coincide.
+          "symbol-sort-key": ["case", ["get", "express"], 1, 0],
+        },
         paint: {
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 2.5, 12, 4.5, 15, 8],
-          "circle-color": ["get", "color"],
-          "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 11, 0.5, 15, 1.5],
-          "circle-stroke-color": darkQuery?.matches ? "#0b0f14" : "#ffffff",
-          "circle-opacity": 0.92,
+          "icon-opacity": ["case", ["get", "dim"], 0.2, 0.95],
         },
       });
 
@@ -230,7 +255,42 @@ export function BusMap({
           "circle-stroke-width": 2,
           "circle-stroke-color": LATE_COLOR,
         },
-      }, "bus-dots");
+      }, "bus-icons");
+
+      // Express services get a ring, not a colour. Route 099's own colour
+      // (#d04110) sits close to LATE_COLOR (#e8590c), so distinguishing express
+      // from late by hue would collide exactly on the busiest express route in
+      // the system. A ring is a different shape, readable against either.
+      map.addLayer({
+        id: "bus-express",
+        type: "circle",
+        source: "buses",
+        filter: ["==", ["get", "express"], true],
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 6, 12, 9, 15, 14],
+          "circle-color": "rgba(0,0,0,0)",
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": ["get", "color"],
+          "circle-stroke-opacity": ["case", ["get", "dim"], 0.15, 0.75],
+        },
+      }, "bus-icons");
+
+      map.addSource("route-line", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+
+      map.addLayer({
+        id: "route-line",
+        type: "line",
+        source: "route-line",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": ["get", "color"],
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 2, 15, 5],
+          "line-opacity": 0.55,
+        },
+      }, "bus-express");
 
       // Drawn beneath the dots so the ring reads as a halo, not a badge.
       map.addLayer({
@@ -245,7 +305,7 @@ export function BusMap({
           "circle-stroke-width": 2,
           "circle-stroke-color": "#0b6ea8",
         },
-      }, "bus-dots");
+      }, "bus-icons");
 
       map.addLayer({
         id: "bus-labels",
@@ -269,8 +329,11 @@ export function BusMap({
 
       bindInteractions();
 
-      // After a theme swap the map is already running; re-add stops directly.
+      // After a theme swap the map is already running; re-add stops and
+      // bus icons directly, since setStyle discarded both along with the
+      // layers.
       const existing = gtfsRef.current;
+      if (existing) registerBusIcons(existing);
       if (existing && existing.stops.length > 0) addStopsLayer(existing);
 
       if (!fieldRef.current) void start();
@@ -288,7 +351,7 @@ export function BusMap({
           [event.point.x + 12, event.point.y + 12],
         ];
         // Buses win ties: they are smaller targets and the more likely intent.
-        const busHits = map.queryRenderedFeatures(box, { layers: ["bus-dots"] });
+        const busHits = map.queryRenderedFeatures(box, { layers: ["bus-icons"] });
         if (busHits.length > 0) {
           selectStop(undefined);
           select(busHits[0]?.properties?.["id"] as string | undefined);
@@ -303,12 +366,40 @@ export function BusMap({
       });
 
       map.getCanvas().style.cursor = "";
-      map.on("mouseenter", "bus-dots", () => {
+      map.on("mouseenter", "bus-icons", () => {
         map.getCanvas().style.cursor = "pointer";
       });
-      map.on("mouseleave", "bus-dots", () => {
+      map.on("mouseleave", "bus-icons", () => {
         map.getCanvas().style.cursor = "";
       });
+
+      // Panning is an unambiguous request to look somewhere else. Without this
+      // the camera would drag the map back on the next frame.
+      map.on("dragstart", () => {
+        if (followRef.current) onStopFollowingRef.current();
+      });
+    }
+
+    /**
+     * Register one bus-icon image per shape per colour, so animate() can name
+     * an icon per bus with no per-frame work. The set is small — TransLink
+     * colours only 12 routes.
+     *
+     * Called from both start() and style.load. setStyle() throws away every
+     * image added with addImage, exactly as it throws away every layer, so a
+     * theme swap needs this re-run just as the style.load handler re-adds
+     * stops — do not collapse this back down to a single call from start().
+     */
+    function registerBusIcons(gtfs: GtfsData): void {
+      const ratio = Math.min(2, Math.max(1, Math.round(window.devicePixelRatio || 1)));
+      for (const color of distinctRouteColors(gtfs.routes, DEFAULT_ROUTE_COLOR)) {
+        for (const shape of ["chevron", "bus"] as const) {
+          const name = iconName(shape, color);
+          if (!map.hasImage(name)) {
+            map.addImage(name, drawMarker(shape, color, ratio), { pixelRatio: ratio });
+          }
+        }
+      }
     }
 
     /**
@@ -412,6 +503,8 @@ export function BusMap({
       }
       if (stopped) return;
 
+      registerBusIcons(gtfs);
+
       fieldRef.current = new BusField((tripId) => {
         const shapeId = tripShapes.current.get(tripId);
         return shapeId ? gtfs.trackFor(shapeId) : null;
@@ -494,6 +587,8 @@ export function BusMap({
       }
       for (const routeId of routes) void gtfs.ensureRoute(routeId);
 
+      onSnapshotRef.current(snapshot.vehicles);
+
       diagnostics.snapshots++;
       diagnostics.buses = snapshot.vehicles.length;
       field.ingest(snapshot);
@@ -522,7 +617,11 @@ export function BusMap({
       // run down on the client clock and sit at "arriving now" for good, beside
       // a dot the rider can no longer see.
       if (selectedId.current) {
-        select(field.has(selectedId.current) ? selectedId.current : undefined);
+        const stillHere = field.has(selectedId.current);
+        select(stillHere ? selectedId.current : undefined);
+        // A bus that has ended its trip will never move again. Following it
+        // would pin the camera to a corner of the map for good.
+        if (!stillHere && followRef.current) onStopFollowingRef.current();
       }
     }
 
@@ -537,19 +636,36 @@ export function BusMap({
       // Read the preference live each frame so toggling it in the OS takes
       // effect without a reload; the check is a cheap boolean.
       const glide = !(reduceMotionQuery?.matches ?? false);
-      const features = field.positionsAt(Date.now(), glide).map((bus) => ({
-        type: "Feature" as const,
-        geometry: { type: "Point" as const, coordinates: [bus.lon, bus.lat] },
-        properties: {
-          id: bus.id,
-          label: gtfs.routeLabel(bus.routeId),
-          color: gtfs.routeColor(bus.routeId),
-          bearing: bus.bearing,
-          late: isLate(bus.delay),
-        },
-      }));
+      const positions = field.positionsAt(Date.now(), glide);
+      const features = positions.map((bus) => {
+        const label = gtfs.routeLabel(bus.routeId);
+        const color = gtfs.routeColor(bus.routeId);
+        const express = isExpress(label);
+        return {
+          type: "Feature" as const,
+          geometry: { type: "Point" as const, coordinates: [bus.lon, bus.lat] },
+          properties: {
+            id: bus.id,
+            label,
+            color,
+            bearing: bus.bearing,
+            late: isLate(bus.delay),
+            express,
+            dim: shouldDim(highlightRef.current, bus.routeId, express),
+            icon: iconName(markerShapeFor(map.getZoom()), color),
+          },
+        };
+      });
 
       source.setData({ type: "FeatureCollection", features });
+
+      // Follow the selected bus. setCenter, not easeTo: an eased camera has its
+      // own animation clock and would fight a target that moves every frame.
+      const following = followRef.current;
+      if (following) {
+        const bus = positions.find((b) => b.id === following);
+        if (bus) map.setCenter([bus.lon, bus.lat]);
+      }
     }
 
     return () => {
@@ -564,6 +680,41 @@ export function BusMap({
       mapRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const gtfs = gtfsRef.current;
+    const source = map?.getSource("route-line") as maplibregl.GeoJSONSource | undefined;
+    if (!map || !gtfs || !source) return;
+
+    const routeId = highlight.routeId;
+    if (!routeId) {
+      source.setData({ type: "FeatureCollection", features: [] });
+      return;
+    }
+
+    let cancelled = false;
+    // The geometry bundle may not be loaded yet. ensureRoute is idempotent and
+    // swallows a failed fetch, so a route whose shapes never arrive simply
+    // highlights its buses with no line, rather than blocking on the fetch.
+    void gtfs.ensureRoute(routeId).then(() => {
+      if (cancelled) return;
+      const color = gtfs.routeColor(routeId);
+      const features = gtfs.shapesFor(routeId).map((points) => ({
+        type: "Feature" as const,
+        geometry: {
+          type: "LineString" as const,
+          coordinates: points.map(([lat, lon]) => [lon, lat]),
+        },
+        properties: { color },
+      }));
+      source.setData({ type: "FeatureCollection", features });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [highlight.routeId]);
 
   return (
     <div className="map-shell">

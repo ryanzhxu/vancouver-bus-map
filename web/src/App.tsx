@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { BusMap, type FeedState, type SelectedBus, type SelectedStop } from "./BusMap.js";
+import { RouteSearch } from "./RouteSearch.js";
 import {
   arrivalsErrorText,
   countdown,
@@ -10,9 +11,12 @@ import {
   hintText,
   isFeedStale,
   isLate,
+  shouldClearFollow,
   type ArrivalsFailure,
+  type WireVehicle,
 } from "./buses.js";
 import type { GtfsData } from "./gtfs.js";
+import type { Highlight, RouteMatch } from "./routes.js";
 
 /** Matches the stop layer's minzoom in BusMap. */
 const STOP_MIN_ZOOM = 14;
@@ -37,20 +41,55 @@ export function App() {
   const [stop, setStop] = useState<SelectedStop | null>(null);
   const [gtfs, setGtfs] = useState<GtfsData | null>(null);
   const [zoom, setZoom] = useState(11);
+  const [route, setRoute] = useState<RouteMatch | null>(null);
+  const [expressOnly, setExpressOnly] = useState(false);
+  const [vehicles, setVehicles] = useState<WireVehicle[]>([]);
+  const [followId, setFollowId] = useState<string | null>(null);
+
+  const highlight: Highlight = { routeId: route?.routeId ?? null, expressOnly };
 
   return (
     <div className="app">
       <BusMap
         onState={setFeed}
-        onSelect={setBus}
+        onSelect={(next) => {
+          setBus(next);
+          // Tapping a stop, empty map, or a different bus reaches here too, and
+          // none of those go through BusCard's onClose. Without this, following
+          // would keep re-centring on a bus whose card is no longer on screen.
+          if (shouldClearFollow(next, followId)) setFollowId(null);
+        }}
         onSelectStop={setStop}
         onReady={setGtfs}
         onZoom={setZoom}
+        onSnapshot={setVehicles}
+        highlight={highlight}
+        followId={followId}
+        onStopFollowing={() => setFollowId(null)}
+      />
+
+      <RouteSearch
+        gtfs={gtfs}
+        selected={route}
+        liveCount={route ? vehicles.filter((v) => v.r === route.routeId).length : 0}
+        expressOnly={expressOnly}
+        onSelect={setRoute}
+        onToggleExpress={() => setExpressOnly((on) => !on)}
       />
 
       {!bus && !stop && <Hint feed={feed} zoom={zoom} />}
 
-      {bus && <BusCard bus={bus} onClose={() => setBus(null)} />}
+      {bus && (
+        <BusCard
+          bus={bus}
+          following={followId === bus.id}
+          onToggleFollow={() => setFollowId((id) => (id === bus.id ? null : bus.id))}
+          onClose={() => {
+            setFollowId(null);
+            setBus(null);
+          }}
+        />
+      )}
       {stop && <StopCard stop={stop} gtfs={gtfs} onClose={() => setStop(null)} />}
 
       <div className="statusbar">
@@ -87,7 +126,17 @@ function useEscapeToClose(onClose: () => void): void {
   }, [onClose]);
 }
 
-function BusCard({ bus, onClose }: { bus: SelectedBus; onClose: () => void }) {
+function BusCard({
+  bus,
+  following,
+  onToggleFollow,
+  onClose,
+}: {
+  bus: SelectedBus;
+  following: boolean;
+  onToggleFollow: () => void;
+  onClose: () => void;
+}) {
   useEscapeToClose(onClose);
 
   // Re-render once a second so the countdown keeps ticking down while the card
@@ -108,6 +157,13 @@ function BusCard({ bus, onClose }: { bus: SelectedBus; onClose: () => void }) {
           <strong>{bus.headsign || bus.routeName || "In service"}</strong>
           {bus.routeName && bus.headsign && <span className="sub">{bus.routeName}</span>}
         </div>
+        <button
+          className={following ? "follow-button on" : "follow-button"}
+          onClick={onToggleFollow}
+          aria-pressed={following}
+        >
+          {following ? "Following" : "Follow"}
+        </button>
         <button className="buscard-close" onClick={onClose} aria-label="Close">
           &times;
         </button>
@@ -373,6 +429,11 @@ function AboutSheet({ onClose }: { onClose: () => void }) {
         <p className="note">
           Buses only. TransLink publishes no live positions for SkyTrain, SeaBus, or the
           West Coast Express, so they are not shown.
+        </p>
+        <p className="note">
+          RapidBus (R1&ndash;R6) and the 99 B-Line are ringed in their own colour.
+          They are TransLink's frequent express services, and the only bus routes
+          the agency gives a colour of its own.
         </p>
         <p className="fine">{ATTRIBUTION}</p>
         <p className="fine">

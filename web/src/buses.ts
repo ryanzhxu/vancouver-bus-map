@@ -408,3 +408,43 @@ function clamp01(n: number): number {
 export function trackFromPoints(points: LatLon[]): Track {
   return buildTrack(points);
 }
+
+/** Which silhouette a bus is drawn with at a given zoom. */
+export type MarkerShape = "chevron" | "bus";
+
+/**
+ * The zoom at which bus markers become bus-shaped.
+ *
+ * Below this the whole region is on screen and every bus in Metro Vancouver is
+ * drawn at once — several hundred on a quiet Saturday, far more at weekday
+ * peak. A bus silhouette at that density is a smear, so the marker stays a
+ * chevron, which still carries the one thing a smear cannot: which way the bus
+ * is going. Matches the zoom at which route labels already appear, so the two
+ * changes land together rather than one surprising the reader before the other.
+ */
+export const BUS_ICON_MIN_ZOOM = 13;
+
+export function markerShapeFor(zoom: number): MarkerShape {
+  return zoom >= BUS_ICON_MIN_ZOOM ? "bus" : "chevron";
+}
+
+/**
+ * Whether a new selection should cancel an in-progress "follow this bus".
+ *
+ * The map's snapshot handler re-selects the same bus every ~90 seconds to
+ * refresh the open card, which reaches this exact call path with a freshly
+ * built object carrying the same id. Comparing ids rather than object
+ * identity is what keeps that periodic refresh from silently ending a follow
+ * that is otherwise still valid — get this backwards and following dies every
+ * 90 seconds with no test failure to catch it.
+ *
+ * When nothing is being followed there is nothing to clear, regardless of
+ * what got selected.
+ */
+export function shouldClearFollow(
+  next: { id: string } | null,
+  followId: string | null,
+): boolean {
+  if (followId === null) return false;
+  return !next || next.id !== followId;
+}
