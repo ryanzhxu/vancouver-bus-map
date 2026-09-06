@@ -10,7 +10,10 @@
   --surface-2: #eef1f4;
   --ink: #141a21;
   --ink-2: #4b5764;
-  --ink-3: #78848f;
+  /* Darkened from #78848f, which reached only 3.82:1 on white — below the
+     4.5:1 WCAG AA needs for small text. This token carries the "scheduled"
+     label on arrivals, which is information, not decoration. */
+  --ink-3: #626c75;
   --rule: #d4dae1;
   --accent: #0b6ea8;
   --ok: #0e6c46;
@@ -28,7 +31,8 @@
     --surface-2: #1e252d;
     --ink: #e7ebef;
     --ink-2: #a5b0bb;
-    --ink-3: #78848f;
+    /* Lightened from #78848f, which fell to 4.05:1 on --surface-2. */
+    --ink-3: #8996a3;
     --rule: #283038;
     --accent: #58a6d8;
     --ok: #5fcb99;
