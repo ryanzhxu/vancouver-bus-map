@@ -46,13 +46,13 @@ export function mergeArrivals(options: {
   const limit = options.limit ?? 8;
   const nowEpoch = Math.floor(now.getTime() / 1000);
 
-  const byTrip = new Map<string, Arrival>();
+  const liveByTrip = new Map<string, Arrival>();
 
   // Live first — these win wherever they exist.
   for (const prediction of predictions) {
     if (prediction.time === null) continue;
     if (prediction.time < nowEpoch - 60) continue;
-    byTrip.set(prediction.tripId, {
+    liveByTrip.set(prediction.tripId, {
       routeId: prediction.routeId,
       tripId: prediction.tripId,
       time: prediction.time,
@@ -61,7 +61,15 @@ export function mergeArrivals(options: {
     });
   }
 
+  const arrivals: Arrival[] = [...liveByTrip.values()];
+
   if (schedule && calendar) {
+    // A night bus after midnight belongs to two service days at once: at 00:30
+    // its 24:45 trip is both yesterday's run (arriving now) and today's run (a
+    // day away). Both are real departures of the same trip id, so dedup by
+    // service day, not by trip id alone, or the imminent one gets hidden.
+    const seen = new Set<string>();
+
     for (const window of activeWindows(now)) {
       const active = servicesOn(calendar, window.date);
 
@@ -72,12 +80,17 @@ export function mergeArrivals(options: {
 
         const serviceId = schedule.s[serviceIndex];
         if (serviceId === undefined || !active.has(serviceId)) continue;
-        if (byTrip.has(tripId)) continue;
+        // A live prediction already covers this trip's imminent run.
+        if (liveByTrip.has(tripId)) continue;
+
+        const key = `${window.date}:${tripId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
 
         const routeId = schedule.r[routeIndex];
         if (routeId === undefined) continue;
 
-        byTrip.set(tripId, {
+        arrivals.push({
           routeId,
           tripId,
           time: epochFor(window.date, seconds),
@@ -88,7 +101,7 @@ export function mergeArrivals(options: {
     }
   }
 
-  return [...byTrip.values()]
+  return arrivals
     .filter((arrival) => arrival.time >= nowEpoch - 60)
     .sort((a, b) => a.time - b.time)
     .slice(0, limit);
