@@ -457,7 +457,17 @@ body {
   border-top: 0;
 }
 
+/* Deliberately NOT painted with the route's own route_color. That colour comes
+   from TransLink's feed, is chosen for a map, and fails WCAG AA as text on this
+   card: the Millennium Line's #ffcd00 reached 1.50:1 on the light surface, and
+   on the dark surface every route failed, including the #0b6ea8 fallback that
+   233 of 245 routes share (3.14:1) and the Expo Line's #0033a0 (1.63:1). It
+   also carried almost no information — nearly every route used that one
+   fallback — and nothing in the UI explained what a colour here meant. The
+   label text already names the route, so --ink (17.51:1 light, 14.44:1 dark)
+   says the same thing legibly. */
 .arrival-route {
+  color: var(--ink);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
