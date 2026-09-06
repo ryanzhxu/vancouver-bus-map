@@ -84,9 +84,18 @@ beneath the symbols, so the halos keep reading as halos.
 Reduced motion is unaffected: it is handled in `positionsAt`, upstream of
 rendering.
 
-**Testable seam:** `markerIconFor(zoom)` and the icon-size ramp move into
+**Testable seam:** `markerShapeFor(zoom)` and the icon-size ramp move into
 `web/src/buses.ts` as pure functions. The repo has no DOM test harness, so
 anything that must be tested cannot live in the layer definition.
+
+> **Superseded at plan stage.** The implementation plan drops SDF and
+> pre-renders one icon per colour instead. `addImage(..., { sdf: true })` wants
+> an alpha channel that already encodes a signed distance field, and a plain
+> rasterised shape passed as SDF renders with blocky edges; a real one needs a
+> distance transform. It is not needed here — TransLink colours only 12 of 245
+> routes and the rest share one fallback, so the whole system takes about a
+> dozen images per shape, drawn once at load. Same result, less machinery. See
+> `docs/superpowers/plans/2026-09-06-map-exploration-features.md`.
 
 ### 2. Route search and highlight
 
@@ -185,7 +194,7 @@ button. Zero new network traffic.
 
 | file | change |
 | ---- | ------ |
-| `web/src/buses.ts` | add `markerIconFor`, icon size ramp, `findBunches` |
+| `web/src/buses.ts` | add `markerShapeFor`, icon size ramp, `findBunches` |
 | `web/src/routes.ts` | new — `searchRoutes`, `isExpress`, `busiestRoutes`, `worstDelayedRoutes` |
 | `web/src/routes.test.ts` | new |
 | `web/src/buses.test.ts` | extend |
@@ -215,7 +224,7 @@ Coverage to add:
   three buses form one group, not three pairs.
 - `busiestRoutes` / `worstDelayedRoutes`: ordering, tie-breaks, the minimum-bus
   floor, and an empty snapshot.
-- `markerIconFor`: the boundary at zoom 13 exactly.
+- `markerShapeFor`: the boundary at zoom 13 exactly.
 
 **One repo defect to fix as part of this work:** `vitest.config.ts` includes
 only `.test.ts`, so any `web/src/**/*.test.tsx` file is silently never
