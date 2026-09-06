@@ -28,6 +28,11 @@
      swatch, never text, so it need not meet the 4.5:1 text-contrast rule. Kept
      identical in both themes so the swatch always matches the map ring. */
   --late: #e8590c;
+  /* The bunched-buses flag. Decorative only, same reasoning as --late: it
+     colours the status-bar dot and the map's connecting line, never text, and
+     is kept identical in both themes so the two never show two purples for
+     the same thing. */
+  --bunched: #9b59b6;
   --shadow: 0 1px 2px rgb(20 26 33 / 12%), 0 8px 24px -12px rgb(20 26 33 / 30%);
 
   --tap: 44px;
@@ -160,7 +165,7 @@ body {
   background: var(--late);
 }
 .dot.bunched {
-  background: #9b59b6;
+  background: var(--bunched);
 }
 
 /* The map legend: ties the orange halo on the map to the five-minute threshold

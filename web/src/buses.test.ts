@@ -571,10 +571,13 @@ describe("findBunches", () => {
   });
 
   it("groups three close buses as one bunch, not three pairs", () => {
+    // a-b and b-c are each within BUNCH_METRES, but a-c (300m) is not: a naive
+    // all-pairs clique would split this into two overlapping pairs or none.
+    // The chain has to merge transitively through b to read as one bunch.
     const bunches = findBunches([
       rendered({ id: "a" }),
-      rendered({ id: "b", lat: northOf(49.28, 60) }),
-      rendered({ id: "c", lat: northOf(49.28, 120) }),
+      rendered({ id: "b", lat: northOf(49.28, 150) }),
+      rendered({ id: "c", lat: northOf(49.28, 300) }),
     ]);
     expect(bunches).toHaveLength(1);
     expect(bunches[0]?.busIds).toHaveLength(3);

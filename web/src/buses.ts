@@ -463,7 +463,13 @@ export function shouldClearFollow(
   return !next || next.id !== followId;
 }
 
-/** Two buses on one route closer than this, going the same way, are bunched. */
+/**
+ * Two buses on one route closer than this, going the same way, are bunched.
+ *
+ * Roughly a city block. Closer than that and two buses on the same route read
+ * as visibly together to a rider on the sidewalk; farther apart and they are
+ * merely both somewhere on the same street.
+ */
 export const BUNCH_METRES = 200;
 
 /**
