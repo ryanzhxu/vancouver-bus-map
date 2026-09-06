@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { BusMap, type FeedState, type SelectedBus, type SelectedStop } from "./BusMap.js";
 import {
+  arrivalsErrorText,
   describeAge,
   describeDelay,
   hasDeparted,
   hintText,
   isFeedStale,
   isLate,
+  type ArrivalsFailure,
 } from "./buses.js";
 import type { GtfsData } from "./gtfs.js";
 
@@ -178,7 +180,7 @@ function StopCard({
   useEscapeToClose(onClose);
 
   const [arrivals, setArrivals] = useState<Arrival[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ArrivalsFailure | null>(null);
 
   // Re-render once a second so every countdown in the list keeps counting down
   // between fetches. Each row's "3 min" is computed from the client clock at
@@ -198,13 +200,30 @@ function StopCard({
     setError(null);
 
     const load = async () => {
+      let response: Response;
       try {
-        const response = await fetch(`/api/stop/${encodeURIComponent(stop.id)}?limit=6`);
-        if (!response.ok) throw new Error(`responded ${response.status}`);
+        response = await fetch(`/api/stop/${encodeURIComponent(stop.id)}?limit=6`);
+      } catch {
+        // The fetch itself failed: the phone is offline or lost the connection.
+        if (!cancelled) setError("offline");
+        return;
+      }
+      if (!response.ok) {
+        // The server answered but could not build the list — e.g. no GTFS build
+        // is published yet (503). A rider needs guidance, not the status code.
+        if (!cancelled) setError("unavailable");
+        return;
+      }
+      try {
         const body = (await response.json()) as { arrivals: Arrival[] };
-        if (!cancelled) setArrivals(body.arrivals);
-      } catch (cause) {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : "could not load");
+        // Clear any error a previous background refresh left set, or a
+        // transient failure would keep the banner up and hide these arrivals.
+        if (!cancelled) {
+          setArrivals(body.arrivals);
+          setError(null);
+        }
+      } catch {
+        if (!cancelled) setError("unavailable");
       }
     };
 
@@ -248,7 +267,7 @@ function StopCard({
         </button>
       </div>
 
-      {error && <p className="arrivals-empty">{error}</p>}
+      {error && <p className="arrivals-empty">{arrivalsErrorText(error)}</p>}
       {!error && arrivals === null && <p className="arrivals-empty">Loading arrivals…</p>}
       {!error && visible !== null && visible.length === 0 && (
         <p className="arrivals-empty">Nothing scheduled from here right now.</p>

@@ -177,6 +177,25 @@ export function hintText(kind: FeedKind, stopsVisible: boolean): string | null {
   return null;
 }
 
+/** Why a stop's arrivals could not load. */
+export type ArrivalsFailure = "offline" | "unavailable";
+
+/**
+ * A rider-facing reason the arrivals did not load, in words a rider can act on.
+ *
+ * The stop card fetches /api/stop over the network, which fails two ways: the
+ * phone lost its connection ("offline"), or the server answered but could not
+ * build the list ("unavailable" — e.g. no GTFS build is published yet). Either
+ * way the raw cause is a developer string ("responded 503", "Failed to fetch")
+ * that means nothing to a rider, so map it to plain guidance instead.
+ */
+export function arrivalsErrorText(failure: ArrivalsFailure): string {
+  if (failure === "offline") {
+    return "Cannot reach the network. Check your connection.";
+  }
+  return "Arrivals are unavailable right now. Try again shortly.";
+}
+
 interface BusState {
   id: string;
   routeId: string;
