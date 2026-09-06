@@ -180,4 +180,32 @@ describe("mergeArrivals", () => {
     expect(result.map((a) => a.tripId)).toEqual(["owl"]);
     expect(result[0]!.time).toBe(epochFor("20260905", at(24, 45)));
   });
+
+  it("shows tonight's after-midnight run of a daily trip, not tomorrow's", () => {
+    // A daily owl departs at 24:45. Its service runs every day, so the trip is
+    // active on both service-day windows. At 00:30 Sunday the run arriving now
+    // is Saturday's 24:45 (Sunday 00:45); Sunday's own 24:45 is a day away.
+    const dailyCalendar: CalendarData = {
+      services: {
+        daily: { days: [1, 1, 1, 1, 1, 1, 1], from: "20260101", to: "20261231" },
+      },
+      exceptions: {},
+    };
+    const dailySchedule: StopSchedule = {
+      r: ["route-n9"],
+      s: ["daily"],
+      d: [[0, 0, at(24, 45), "owl"]],
+    };
+    const lateNight = new Date("2026-09-06T07:30:00Z"); // 00:30 Sunday Vancouver
+
+    const result = mergeArrivals({
+      schedule: dailySchedule,
+      predictions: [],
+      calendar: dailyCalendar,
+      now: lateNight,
+    });
+
+    expect(result.map((a) => a.tripId)).toEqual(["owl"]);
+    expect(result[0]!.time).toBe(epochFor("20260905", at(24, 45)));
+  });
 });

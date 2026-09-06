@@ -72,15 +72,23 @@ export function mergeArrivals(options: {
 
         const serviceId = schedule.s[serviceIndex];
         if (serviceId === undefined || !active.has(serviceId)) continue;
-        if (byTrip.has(tripId)) continue;
 
         const routeId = schedule.r[routeIndex];
         if (routeId === undefined) continue;
 
+        const time = epochFor(window.date, seconds);
+        const existing = byTrip.get(tripId);
+        if (existing) {
+          // A live prediction always wins. Among two scheduled runs of the same
+          // trip — a daily after-midnight departure is active on both service-day
+          // windows — keep the sooner one, which is the run actually arriving.
+          if (existing.live || existing.time <= time) continue;
+        }
+
         byTrip.set(tripId, {
           routeId,
           tripId,
-          time: epochFor(window.date, seconds),
+          time,
           live: false,
           delay: null,
         });
