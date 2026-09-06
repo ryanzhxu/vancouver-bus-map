@@ -475,6 +475,12 @@ export function BusMap({
         late: snapshot.vehicles.filter((v) => isLate(v.l)).length,
         feedTime: snapshot.feedTimestamp,
       });
+
+      // Refresh the open bus card from the new wire data. Without this the card
+      // freezes at the values it held when tapped: the countdown keeps ticking
+      // down toward a stale prediction, and the next stop, delay, and sequence
+      // never update as the bus advances through later polls.
+      if (selectedId.current) select(selectedId.current);
     }
 
     function animate(): void {
