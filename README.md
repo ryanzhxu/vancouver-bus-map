@@ -44,8 +44,12 @@ Verified against live payloads, not documentation:
   because those come from the static feed.
 - Positions carry `stop_id`, `current_stop_sequence`, and status, so "next stop"
   needs no extra call.
-- **No bearing and no occupancy** are populated on any vehicle. Heading is
-  derived from the route geometry.
+- **Position is all you get.** No bearing, no speed, no odometer, no occupancy
+  and no congestion level are populated on any vehicle — verified against a
+  live payload of 579 vehicles, not assumed. `current_status` is the exception:
+  it is populated on every vehicle and decoded into `Vehicle.status`
+  (`src/gtfs-rt.ts`), though the wire format sent to the browser does not carry
+  it. Heading is derived from the route geometry.
 - Trip updates reach roughly **20 stops ahead** of each bus, so a stop further
   down a line has no live prediction even while the route runs normally.
 - A handful of buses report position exactly `(0, 0)` when they lose GPS. The
@@ -89,21 +93,30 @@ Critical path is manifest plus routes, about 270 ms.
 
 ```
 src/
-  config.ts       poll budget and service window — the numbers that matter
-  gtfs-rt.ts      dependency-free GTFS-Realtime decoder
-  live-feed.ts    the Durable Object that owns all polling
-  service-day.ts  GTFS calendars, past-midnight times, DST
-  arrivals.ts     merge live predictions with the timetable
-  gtfs-assets.ts  serve R2 artifacts
-  stop-api.ts     GET /api/stop/{id}
-  index.ts        Worker routes
+  config.ts            poll budget and service window — the numbers that matter
+  types.ts             Env bindings and wire shapes: WireVehicle, Snapshot, StopPrediction
+  gtfs-rt.ts           dependency-free GTFS-Realtime decoder
+  wire.ts              join live predictions onto a vehicle, trimmed to WireVehicle
+  live-feed.ts         the Durable Object that owns all polling
+  service-day.ts       GTFS calendars, past-midnight times, DST
+  arrivals.ts          merge live predictions with the timetable
+  gtfs-assets.ts       serve R2 artifacts
+  stop-api.ts          GET /api/stop/{id}
+  index.ts             Worker routes
 web/src/
-  BusMap.tsx      MapLibre, layers, interaction
-  geo.ts          polyline projection and interpolation
-  buses.ts        per-vehicle glide state
-  gtfs.ts         static data loading
+  BusMap.tsx           MapLibre, layers, interaction
+  basemap.ts           keyless vector basemap providers, with a CARTO fallback
+  geo.ts               polyline projection and interpolation
+  buses.ts             per-vehicle glide state
+  icons.ts             bus marker icons, pre-rendered once per colour
+  gtfs.ts              static data loading
+  routes.ts            express, search match, and fleet distribution per route
+  RouteSearch.tsx      the route picker
+  SystemPulse.tsx      two live leaderboards over the current snapshot
+  useEscapeToClose.ts  Escape-to-close handler shared by every dialog card
 scripts/
-  build-gtfs.ts   weekly static build into R2
+  build-gtfs.ts        weekly static build into R2
+  gtfs-util.ts         pure GTFS/CSV helpers, tested apart from the build script
 ```
 
 ## Develop
@@ -111,7 +124,7 @@ scripts/
 ```sh
 npm install && npm --prefix web install
 
-npm test           # 120 tests
+npm test           # 223 tests
 npm run typecheck
 npm run dev              # wrangler on :8787
 npm --prefix web run dev # Vite on :5173, proxies /api

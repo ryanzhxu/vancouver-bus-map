@@ -13,7 +13,7 @@ and each has its own `node_modules` and `package-lock.json`.
 ```sh
 npm install && npm --prefix web install   # both, or nothing typechecks
 
-npm test                  # vitest run — 12 files, 179 tests, ~0.3s
+npm test                  # vitest run — 14 files, 223 tests, ~0.2s
 npm run test:watch
 npm run typecheck         # worker tsc --noEmit, then web tsc -b --force
 npm run check             # typecheck && test
@@ -52,6 +52,11 @@ Verification gate used by CI and autobuild:
   object uploads.
 - `src/gtfs-rt.ts` is a hand-rolled GTFS-Realtime protobuf decoder. It exists
   to keep the Worker bundle small. Do not replace it with a library.
+- `web/src/routes.ts` (which routes are express, which match a search, how the
+  fleet is distributed) and `web/src/icons.ts` (bus marker icons, pre-rendered
+  once per colour) are plain `.ts` modules with their own tests;
+  `web/src/RouteSearch.tsx`, `SystemPulse.tsx`, and `BusMap.tsx` stay thin
+  views over them.
 
 ## Hard constraints
 
@@ -86,11 +91,13 @@ Verification gate used by CI and autobuild:
 - Tests sit beside their source as `name.test.ts`. Vitest only collects
   `src/**/*.test.ts`, `scripts/**/*.test.ts` and `web/src/**/*.test.ts` — a
   `.test.tsx` file is silently not run.
-- **There is no DOM harness.** Node is the only environment. To test UI logic,
-  move the pure function out of the component into a plain module first
-  (`web/src/buses.ts` is where `countdown`, `isLate`, `describeAge` and friends
-  ended up for exactly this reason). `web/src/layout.test.ts` shows the other
-  trick: assert CSS geometry by parsing `app.css` and MapLibre's stylesheet.
+- **There is no DOM harness.** Node is the only environment. Decision logic
+  goes in a `.ts` module with its own tests; `.tsx` files stay thin views over
+  it (`web/src/buses.ts`, `web/src/routes.ts`, and `web/src/icons.ts` are where
+  `countdown`, `isLate`, `describeAge`, express/search matching, and icon
+  generation ended up for exactly this reason). `web/src/layout.test.ts` shows
+  the other trick: assert CSS geometry by parsing `app.css` and MapLibre's
+  stylesheet.
 - Comment style is the distinctive thing here. A constant or module gets a
   block comment that says **why the value is what it is**, usually with the
   arithmetic or the failure it prevents — see `src/config.ts`,
