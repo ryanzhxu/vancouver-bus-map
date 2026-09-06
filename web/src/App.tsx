@@ -134,7 +134,7 @@ function BusCard({ bus, onClose }: { bus: SelectedBus; onClose: () => void }) {
           </div>
         )}
         <div>
-          <dt>Stop number</dt>
+          <dt>Stop sequence</dt>
           <dd>{bus.stopSequence || "—"}</dd>
         </div>
       </dl>
