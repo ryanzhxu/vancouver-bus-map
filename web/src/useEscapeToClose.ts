@@ -6,7 +6,8 @@ import { useEffect } from "react";
  * Every card is a role="dialog", but the map behind it has no keyboard exit, so
  * without this a keyboard or switch user who opens the bus card or the stop card
  * can close it only by finding the small × button. The About sheet already
- * closed on Escape; this shares one handler so all three behave the same.
+ * closed on Escape; this shares one handler so every role="dialog" card
+ * behaves the same, however many there are.
  */
 export function useEscapeToClose(onClose: () => void): void {
   useEffect(() => {

@@ -54,9 +54,10 @@ Verification gate used by CI and autobuild:
   to keep the Worker bundle small. Do not replace it with a library.
 - `web/src/routes.ts` (which routes are express, which match a search, how the
   fleet is distributed) and `web/src/icons.ts` (bus marker icons, pre-rendered
-  once per colour) are plain `.ts` modules with their own tests;
-  `web/src/RouteSearch.tsx`, `SystemPulse.tsx`, and `BusMap.tsx` stay thin
-  views over them.
+  once per colour) are plain `.ts` modules with their own tests. `BusMap.tsx`
+  sits over both; `RouteSearch.tsx` sits over `routes.ts` alone. `SystemPulse.tsx`
+  only types its props against `routes.ts` — `App.tsx` calls `busiestRoutes`
+  and `worstDelayedRoutes` and hands `SystemPulse` the result.
 
 ## Hard constraints
 
