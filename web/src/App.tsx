@@ -58,6 +58,14 @@ export function App() {
 }
 
 function BusCard({ bus, onClose }: { bus: SelectedBus; onClose: () => void }) {
+  // Re-render once a second so the countdown keeps ticking down while the card
+  // is open, instead of freezing at the value it had when the bus was tapped.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   return (
     <div className="buscard" role="dialog" aria-label={`Route ${bus.routeLabel}`}>
       <div className="buscard-head">
@@ -88,6 +96,9 @@ function BusCard({ bus, onClose }: { bus: SelectedBus; onClose: () => void }) {
                 {" "}
                 &#9855;
               </span>
+            )}
+            {bus.arrivalTime !== null && (
+              <span className="arrival-eta">{describeArrival(bus.arrivalTime)}</span>
             )}
           </dd>
         </div>
@@ -225,6 +236,14 @@ function countdown(epochSeconds: number): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+/** Live prediction for a selected bus, e.g. "arriving in 4 min". */
+function describeArrival(epochSeconds: number): string {
+  const when = countdown(epochSeconds);
+  if (when === "now") return "arriving now";
+  if (when.endsWith("min")) return `arriving in ${when}`;
+  return `arriving at ${when}`;
 }
 
 function describeDelay(delay: number | null): string {

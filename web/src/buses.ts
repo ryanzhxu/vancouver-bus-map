@@ -22,6 +22,10 @@ export interface WireVehicle {
   h?: string;
   /** trip headsign */
   d?: string;
+  /** predicted arrival at the next stop, absolute epoch seconds */
+  a?: number;
+  /** delay against schedule in seconds; negative is early */
+  l?: number;
 }
 
 export interface Snapshot {

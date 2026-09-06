@@ -16,7 +16,8 @@ import {
   type Alert,
   type Vehicle,
 } from "./gtfs-rt.js";
-import type { Env, Snapshot, StopPrediction, TripIndex, WireVehicle } from "./types.js";
+import type { Env, Snapshot, StopPrediction, TripIndex } from "./types.js";
+import { toWire } from "./wire.js";
 
 const SNAPSHOT_KEY = "live:snapshot";
 
@@ -176,13 +177,15 @@ export class LiveFeed extends DurableObject<Env> {
     const vehicles = (await this.ctx.storage.get<Vehicle[]>("vehicles")) ?? [];
     const feedTimestamp = (await this.ctx.storage.get<number | null>("feedTimestamp")) ?? null;
     const trips = await this.tripIndex();
+    const predictions =
+      (await this.ctx.storage.get<Record<string, StopPrediction[]>>("predictions")) ?? {};
 
     return {
       type: "snapshot",
       generatedAt: Date.now(),
       feedTimestamp,
       pollSeconds: POLL_SECONDS,
-      vehicles: vehicles.map((v) => toWire(v, trips)),
+      vehicles: vehicles.map((v) => toWire(v, trips, predictions)),
     };
   }
 
@@ -283,29 +286,6 @@ export class LiveFeed extends DurableObject<Env> {
 }
 
 /* ------------------------------------------------------------------ */
-
-/** Trim a decoded vehicle to what the map needs, keeping the payload small. */
-function toWire(v: Vehicle, trips: TripIndex | null): WireVehicle {
-  const entry = v.tripId ? trips?.[v.tripId] : undefined;
-  return {
-    i: v.id,
-    r: v.routeId ?? "",
-    t: v.tripId ?? "",
-    y: round5(v.lat),
-    x: round5(v.lon),
-    s: v.stopSequence ?? 0,
-    p: v.stopId ?? "",
-    // Joined from the static index so the client can glide along real geometry
-    // without downloading 128k trips itself.
-    ...(entry?.[1] ? { h: entry[1] } : {}),
-    ...(entry?.[2] ? { d: entry[2] } : {}),
-  };
-}
-
-/** Five decimals is about a metre — more precision than a bus position has. */
-function round5(n: number): number {
-  return Math.round(n * 1e5) / 1e5;
-}
 
 function indexPredictionsByStop(
   updates: ReturnType<typeof decodeTripUpdates>,
