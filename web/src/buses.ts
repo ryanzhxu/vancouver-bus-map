@@ -85,6 +85,25 @@ export function describeDelay(delay: number | null): string {
 }
 
 /**
+ * How long ago the feed last reported, in words, e.g. "12s ago", "3 min ago".
+ *
+ * Past an hour the figure switches to hours. The poller sleeps 23:00–07:00
+ * Pacific, so overnight the map carries the last evening poll and this age
+ * climbs into the hundreds of minutes — "480 min ago" is unreadable, while
+ * "8 hr ago" tells a rider at a glance the buses are from last night. `now` is
+ * a parameter so the reading is deterministic under test.
+ */
+export function describeAge(feedTime: number | null, now = Date.now()): string {
+  if (!feedTime) return "";
+  const seconds = Math.max(0, Math.round(now / 1000 - feedTime));
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(seconds / 3600);
+  return `${hours} hr ago`;
+}
+
+/**
  * How long a departure keeps showing after its time passes, in seconds.
  *
  * Mirrors the "keep a minute of slack so a bus that just left is still listed"

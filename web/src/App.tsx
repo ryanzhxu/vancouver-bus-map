@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { BusMap, type FeedState, type SelectedBus, type SelectedStop } from "./BusMap.js";
-import { describeDelay, hasDeparted, hintText, isLate } from "./buses.js";
+import { describeAge, describeDelay, hasDeparted, hintText, isLate } from "./buses.js";
 import type { GtfsData } from "./gtfs.js";
 
 /** Matches the stop layer's minzoom in BusMap. */
@@ -373,12 +373,4 @@ function AboutSheet({ onClose }: { onClose: () => void }) {
       </div>
     </div>
   );
-}
-
-function describeAge(feedTime: number | null): string {
-  if (!feedTime) return "";
-  const seconds = Math.max(0, Math.round(Date.now() / 1000 - feedTime));
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.round(seconds / 60);
-  return `${minutes} min ago`;
 }
