@@ -39,7 +39,7 @@ export async function handleStop(
     predictions,
     calendar,
     now: new Date(),
-    limit: Number(url.searchParams.get("limit") ?? 8),
+    limit: parseLimit(url.searchParams.get("limit")),
   });
 
   return Response.json(
@@ -55,6 +55,17 @@ export async function handleStop(
       headers: { "cache-control": "public, max-age=20" },
     },
   );
+}
+
+/**
+ * A stop's arrival count from the untrusted `limit` query value. A missing,
+ * empty, or non-numeric value falls back to the default. `Number("abc")` is
+ * NaN, and `mergeArrivals` ends with `slice(0, limit)`, so a bad value would
+ * otherwise return zero departures and hide the whole timetable.
+ */
+export function parseLimit(raw: string | null): number {
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : 8;
 }
 
 async function loadSchedule(
