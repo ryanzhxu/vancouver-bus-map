@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   BusField,
   DEPARTED_SLACK_SECONDS,
+  describeAge,
   describeDelay,
   hasDeparted,
   hintText,
@@ -322,5 +323,32 @@ describe("hintText", () => {
   it("defers to the status pill for an error", () => {
     expect(hintText("error", true)).toBeNull();
     expect(hintText("error", false)).toBeNull();
+  });
+});
+
+describe("describeAge", () => {
+  const now = 1_700_000_000_000;
+  const nowSeconds = Math.floor(now / 1000);
+
+  it("reads seconds then minutes for a fresh feed", () => {
+    expect(describeAge(nowSeconds - 12, now)).toBe("12s ago");
+    expect(describeAge(nowSeconds - 90, now)).toBe("2 min ago");
+    expect(describeAge(nowSeconds - 30 * 60, now)).toBe("30 min ago");
+  });
+
+  it("switches to hours so the overnight stale feed stays legible", () => {
+    // The poller sleeps 23:00-07:00, so the map carries the last evening poll
+    // and the age climbs past an hour. Minutes alone print "480 min ago".
+    expect(describeAge(nowSeconds - 8 * 3600, now)).toBe("8 hr ago");
+    expect(describeAge(nowSeconds - 60 * 60, now)).toBe("1 hr ago");
+  });
+
+  it("returns nothing when the feed has no timestamp", () => {
+    expect(describeAge(null, now)).toBe("");
+    expect(describeAge(0, now)).toBe("");
+  });
+
+  it("never reads negative when the client clock lags the feed", () => {
+    expect(describeAge(nowSeconds + 5, now)).toBe("0s ago");
   });
 });
