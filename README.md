@@ -137,8 +137,9 @@ Some of the data used in this product or service is provided by permission of
 TransLink. TransLink assumes no responsibility for the accuracy or currency of
 the Data used in this product or service.
 
-Not affiliated with or endorsed by TransLink. Basemap © OpenFreeMap,
-© OpenMapTiles, data from OpenStreetMap.
+Not affiliated with or endorsed by TransLink. Basemap © OpenFreeMap or, as a
+keyless fallback when OpenFreeMap is unreachable, © CARTO — both © OpenMapTiles,
+data from OpenStreetMap. The on-map attribution names whichever is in use.
 
 ## Licence
 
