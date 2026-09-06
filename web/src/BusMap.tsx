@@ -9,6 +9,7 @@ import {
 import { BusField, isLate, markerShapeFor, type Snapshot } from "./buses.js";
 import { DEFAULT_ROUTE_COLOR, GtfsData } from "./gtfs.js";
 import { distinctRouteColors, drawMarker, iconName } from "./icons.js";
+import { isExpress } from "./routes.js";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 /** Metro Vancouver, framed to hold Richmond through North Van. */
@@ -214,6 +215,7 @@ export function BusMap({
           // because a neighbour got there first would be a lie about the fleet.
           "icon-allow-overlap": true,
           "icon-ignore-placement": true,
+          "symbol-sort-key": ["case", ["get", "express"], 0, 1],
         },
       });
 
@@ -231,6 +233,24 @@ export function BusMap({
           "circle-opacity": 0.28,
           "circle-stroke-width": 2,
           "circle-stroke-color": LATE_COLOR,
+        },
+      }, "bus-icons");
+
+      // Express services get a ring, not a colour. Route 099's own colour
+      // (#d04110) sits close to LATE_COLOR (#e8590c), so distinguishing express
+      // from late by hue would collide exactly on the busiest express route in
+      // the system. A ring is a different shape, readable against either.
+      map.addLayer({
+        id: "bus-express",
+        type: "circle",
+        source: "buses",
+        filter: ["==", ["get", "express"], true],
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 6, 12, 9, 15, 14],
+          "circle-color": "rgba(0,0,0,0)",
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": ["get", "color"],
+          "circle-stroke-opacity": 0.75,
         },
       }, "bus-icons");
 
@@ -575,6 +595,7 @@ export function BusMap({
           color: gtfs.routeColor(bus.routeId),
           bearing: bus.bearing,
           late: isLate(bus.delay),
+          express: isExpress(gtfs.routeLabel(bus.routeId)),
           icon: iconName(markerShapeFor(map.getZoom()), gtfs.routeColor(bus.routeId)),
         },
       }));

@@ -374,6 +374,11 @@ function AboutSheet({ onClose }: { onClose: () => void }) {
           Buses only. TransLink publishes no live positions for SkyTrain, SeaBus, or the
           West Coast Express, so they are not shown.
         </p>
+        <p className="note">
+          RapidBus (R1&ndash;R6) and the 99 B-Line are ringed in their own colour.
+          They are TransLink's frequent express services, and the only bus routes
+          the agency gives a colour of its own.
+        </p>
         <p className="fine">{ATTRIBUTION}</p>
         <p className="fine">
           Not affiliated with TransLink.{" "}
