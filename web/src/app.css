@@ -370,6 +370,7 @@ body {
 .pulse-list button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; }
 .pulse-value { margin-left: auto; font-variant-numeric: tabular-nums; }
 .pulse-sub { opacity: 0.65; font-size: 11px; }
+.pulse-empty { margin: 0; color: var(--ink-3); font-size: 0.88rem; }
 
 /* ---------- about sheet ---------- */
 

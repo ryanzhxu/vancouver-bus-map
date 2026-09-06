@@ -1,5 +1,6 @@
 import { describeDelay } from "./buses.js";
 import type { RouteDelay, RouteTally } from "./routes.js";
+import { useEscapeToClose } from "./useEscapeToClose.js";
 
 /**
  * Two live leaderboards over the snapshot already on screen: where the fleet is,
@@ -18,6 +19,8 @@ export function SystemPulse({
   onSelectRoute: (routeId: string) => void;
   onClose: () => void;
 }) {
+  useEscapeToClose(onClose);
+
   return (
     <div className="pulse" role="dialog" aria-label="System pulse">
       <div className="pulse-head">
