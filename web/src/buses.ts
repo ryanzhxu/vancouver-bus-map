@@ -103,6 +103,17 @@ export class BusField {
     return this.buses.size;
   }
 
+  /**
+   * True while this bus is still drawn on the map.
+   *
+   * A bus missing from one snapshot is still here — it keeps gliding on its
+   * last sample until dropStale gives up on it. Callers that hold their own
+   * per-bus record use this to tell "briefly absent" from "gone".
+   */
+  has(id: string): boolean {
+    return this.buses.has(id);
+  }
+
   /** Fold a new snapshot in, starting a fresh glide for every bus that moved. */
   ingest(snapshot: Snapshot, now = Date.now()): void {
     const durationMs = Math.max(1000, snapshot.pollSeconds * 1000);

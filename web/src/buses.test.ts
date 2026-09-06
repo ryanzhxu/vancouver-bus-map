@@ -180,6 +180,34 @@ describe("BusField", () => {
     // No delay on the wire stays null, never a fabricated on-time reading.
     expect(byId.get("unknown")).toBeNull();
   });
+
+  it("reports whether a bus is still on the map", () => {
+    const field = new BusField(noTracks);
+    field.ingest(snapshot([vehicle({ i: "a" }), vehicle({ i: "b" })]), 0);
+
+    expect(field.has("a")).toBe(true);
+    expect(field.has("never-seen")).toBe(false);
+  });
+
+  it("still holds a bus missing from one snapshot but not yet stale", () => {
+    const field = new BusField(noTracks);
+    field.ingest(snapshot([vehicle({ i: "a" }), vehicle({ i: "b" })]), 0);
+    // "b" drops out of the feed for two minutes. It is still drawn, gliding on
+    // its last sample, so anything keyed off has() must keep showing it.
+    field.ingest(snapshot([vehicle({ i: "a" })]), 120_000);
+
+    expect(field.has("b")).toBe(true);
+  });
+
+  it("forgets a bus once it has been gone long enough to leave the map", () => {
+    const field = new BusField(noTracks);
+    field.ingest(snapshot([vehicle({ i: "a" }), vehicle({ i: "b" })]), 0);
+    // Past STALE_MS: dropStale removes "b", so it is no longer drawn.
+    field.ingest(snapshot([vehicle({ i: "a" })]), 7 * 60_000);
+
+    expect(field.has("b")).toBe(false);
+    expect(field.has("a")).toBe(true);
+  });
 });
 
 describe("isLate", () => {
