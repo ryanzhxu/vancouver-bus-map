@@ -48,12 +48,17 @@ const vehicle = (over: Partial<WireVehicle> = {}): WireVehicle => ({
   ...over,
 });
 
-const snapshot = (vehicles: WireVehicle[], pollSeconds = 90): Snapshot => ({
+const snapshot = (
+  vehicles: WireVehicle[],
+  pollSeconds = 90,
+  previous?: Record<string, [number, number]>,
+): Snapshot => ({
   type: "snapshot",
   generatedAt: 0,
   feedTimestamp: null,
   pollSeconds,
   vehicles,
+  ...(previous ? { previous } : {}),
 });
 
 const noTracks = () => null;
@@ -67,6 +72,44 @@ describe("BusField", () => {
     const [bus] = field.positionsAt(1000);
     expect(bus!.lat).toBeCloseTo(49.28, 6);
     expect(bus!.lon).toBeCloseTo(-123.12, 6);
+  });
+
+  it("glides from a seeded prior fix on the very first snapshot, instead of freezing", () => {
+    const field = new BusField(noTracks);
+    const seeded: Snapshot = {
+      type: "snapshot",
+      generatedAt: 0,
+      feedTimestamp: null,
+      pollSeconds: 90,
+      vehicles: [vehicle({ y: 49.3 })],
+      previous: { bus1: [49.28, -123.12] },
+    };
+
+    // now=45_000: this client connected halfway through the glide segment
+    // that an already-open tab started tracking back when generatedAt was 0.
+    field.ingest(seeded, 45_000);
+
+    const [bus] = field.positionsAt(45_000);
+    expect(bus!.lat).toBeCloseTo(49.29, 4);
+    expect(bus!.moving).toBe(true);
+  });
+
+  it("still freezes a bus absent from the seed map, even when other buses have one", () => {
+    const field = new BusField(noTracks);
+    const seeded: Snapshot = {
+      type: "snapshot",
+      generatedAt: 0,
+      feedTimestamp: null,
+      pollSeconds: 90,
+      vehicles: [vehicle({ i: "brand-new", y: 49.3 })],
+      previous: { "some-other-bus": [49.28, -123.12] },
+    };
+
+    field.ingest(seeded, 45_000);
+
+    const [bus] = field.positionsAt(45_000);
+    expect(bus!.lat).toBeCloseTo(49.3, 6);
+    expect(bus!.moving).toBe(false);
   });
 
   it("tracks several buses at once", () => {
