@@ -3,6 +3,10 @@
   "name": "vancouver-bus-map",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-05",
+  // The app is served at the vanbus.ryanxu.dev Workers Custom Domain. The
+  // default *.workers.dev route stays off so the old rxlab.workers.dev
+  // hostname does not silently come back on every deploy.
+  "workers_dev": false,
   "observability": {
     "enabled": true
   },
