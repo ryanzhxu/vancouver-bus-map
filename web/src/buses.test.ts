@@ -3,6 +3,7 @@ import {
   arrivalsErrorText,
   BUS_ICON_MIN_ZOOM,
   BusField,
+  bunchesAt,
   countdown,
   DEPARTED_SLACK_SECONDS,
   describeAge,
@@ -566,6 +567,45 @@ describe("findBunches", () => {
     field.ingest(snapshot([a, b]), 0);
     field.ingest(snapshot([a, b]), 90_000);
 
+    expect(findBunches(field.positionsAt(90_000))).toEqual([]);
+  });
+
+  it("does not bunch buses the feed gave no route for", () => {
+    // Two route-less buses share the empty route id, so without a guard they
+    // group together and the map draws a line between buses that have no route
+    // in common. The status bar's bunched count inflates with them.
+    expect(
+      findBunches([
+        rendered({ id: "a", routeId: "" }),
+        rendered({ id: "b", routeId: "", lat: northOf(49.28, 50) }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("detects a bunch from the sample just ingested, not the last drawn frame", () => {
+    // The reason BusMap passes glide=false here. ingest() resets startedAt for
+    // every bus in the snapshot, so a gliding read at that instant returns where
+    // each bus was being DRAWN a moment earlier — a whole poll interval stale.
+    // These two close from 800m apart to 100m, which straddles BUNCH_METRES, so
+    // the gliding read misses the bunch entirely.
+    const field = new BusField(noTracks);
+    field.ingest(
+      snapshot([
+        vehicle({ i: "a", y: 49.28 }),
+        vehicle({ i: "b", y: northOf(49.28, 800) }),
+      ]),
+      0,
+    );
+    field.ingest(
+      snapshot([
+        vehicle({ i: "a", y: northOf(49.28, 900) }),
+        vehicle({ i: "b", y: northOf(49.28, 1000) }),
+      ]),
+      90_000,
+    );
+
+    expect(bunchesAt(field, 90_000)).toHaveLength(1);
+    // What the call would have found without the rule bunchesAt carries.
     expect(findBunches(field.positionsAt(90_000))).toEqual([]);
   });
 

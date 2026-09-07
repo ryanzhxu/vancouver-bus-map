@@ -107,7 +107,8 @@ export interface RouteTally {
  * `routeId ?? ""`, so a vehicle the feed gave no trip for arrives with an empty
  * string, and every such bus across the network shares it. Left in, they form a
  * single group large enough to top this table and render as a coloured pill with
- * no text in it. The map's own route set drops them for the same reason.
+ * no text in it. findBunches and the map's route prefetch drop them for the same
+ * reason.
  */
 export function busiestRoutes(
   vehicles: WireVehicle[],

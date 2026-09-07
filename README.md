@@ -128,7 +128,7 @@ scripts/
 ```sh
 npm install && npm --prefix web install
 
-npm test           # 225 tests
+npm test           # 228 tests
 npm run typecheck
 npm run dev              # wrangler on :8787
 npm --prefix web run dev # Vite on :5173, proxies /api

@@ -518,12 +518,33 @@ export function bearingDelta(a: number, b: number): number {
  * Grouping is transitive: three buses in a line form one bunch of three, not
  * three overlapping pairs, which is how a rider would describe it.
  */
+/**
+ * The bunches in `field` at `now`, detected from the samples just ingested.
+ *
+ * Exists so the glide argument below is not a decision buried in a .tsx file
+ * that no test can reach. It is load-bearing: ingest() has just reset startedAt
+ * for every bus in the snapshot, so a gliding read returns wherever each bus was
+ * being *drawn* the instant before, plus the bearing at the old fromDistance —
+ * up to a whole poll interval, 400-600m, against BUNCH_METRES's 200m. false
+ * snaps to the sample just ingested and the bearing at toDistance. The drawn
+ * lines still tween between polls, because animate() does its own gliding read.
+ */
+export function bunchesAt(field: BusField, now: number): Bunch[] {
+  return findBunches(field.positionsAt(now, false));
+}
+
 export function findBunches(buses: RenderedBus[], metres = BUNCH_METRES): Bunch[] {
   const threshold = metres / METRES_PER_DEGREE;
 
   const byRoute = new Map<string, RenderedBus[]>();
   for (const bus of buses) {
     if (!bus.moving) continue;
+    // A bus the feed gave no trip for arrives with routeId "" — the wire format
+    // sends routeId ?? "" — and every such bus in the region shares it. Left in,
+    // they group as one enormous "route" and any two of them that happen to pass
+    // within BUNCH_METRES on similar bearings draw a line claiming a bunch
+    // between buses that are not on the same route at all.
+    if (!bus.routeId) continue;
     const fleet = byRoute.get(bus.routeId);
     if (fleet) fleet.push(bus);
     else byRoute.set(bus.routeId, [bus]);

@@ -13,7 +13,7 @@ and each has its own `node_modules` and `package-lock.json`.
 ```sh
 npm install && npm --prefix web install   # both, or nothing typechecks
 
-npm test                  # vitest run — 14 files, 225 tests, ~0.2s
+npm test                  # vitest run — 14 files, 228 tests, ~0.2s
 npm run test:watch
 npm run typecheck         # worker tsc --noEmit, then web tsc -b --force
 npm run check             # typecheck && test

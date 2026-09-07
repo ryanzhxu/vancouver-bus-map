@@ -8,7 +8,7 @@ import {
 } from "./basemap.js";
 import {
   BusField,
-  findBunches,
+  bunchesAt,
   isLate,
   markerShapeFor,
   type Bunch,
@@ -655,16 +655,9 @@ export function BusMap({
       // Computed once here, not per frame in animate(), and the one source of
       // truth animate() draws both the per-bus flag and the connecting lines
       // from, so the map and the status bar count below can never disagree.
-      //
-      // glide=false, not the default: ingest() just reset startedAt for every
-      // bus in this snapshot, so a gliding read here would return wherever the
-      // bus was being *drawn* the instant before this snapshot landed, plus the
-      // bearing at the old fromDistance — up to a whole poll interval (400-600m)
-      // stale against BUNCH_METRES's 200m threshold. false snaps to the sample
-      // just ingested and the bearing at toDistance instead. animate()'s own
-      // gliding read is untouched, so the drawn lines still tween smoothly
-      // between polls; only detection itself must see the fresh sample.
-      bunchesRef.current = findBunches(field.positionsAt(Date.now(), false));
+      // bunchesAt, not findBunches directly: it carries the glide=false rule
+      // that detection depends on, in a module a test can reach.
+      bunchesRef.current = bunchesAt(field, Date.now());
       const bunchedCount = new Set(bunchesRef.current.flatMap((b) => b.busIds)).size;
 
       onStateRef.current({
