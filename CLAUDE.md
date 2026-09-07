@@ -127,6 +127,10 @@ Verification gate used by CI and autobuild:
   a supported state, not a bug.
 - `.autobuild/` is ignored through `.git/info/exclude`, not `.gitignore`, so it
   is invisible locally but not ignored for anyone else who clones.
-- Deploys are manual. CI (`.github/workflows/ci.yml`) runs install, worker
-  typecheck, tests, web build and a `wrangler deploy --dry-run` on pushes to
-  `main` and on every PR. Landing on `main` is the end of a change.
+- Deploys are automatic on merge. CI (`.github/workflows/ci.yml`) runs install,
+  worker typecheck, tests, web build and a `wrangler deploy --dry-run` on
+  pushes to `main` and on every PR; a separate `.github/workflows/deploy.yml`
+  re-runs typecheck and tests against the merged tree, then runs
+  `npm run deploy` for real, gated on the `CLOUDFLARE_API_TOKEN` secret. `main`
+  is protected by a ruleset requiring a PR with a green `check` run, so landing
+  on `main` is the end of a change — the deploy itself needs no manual step.
