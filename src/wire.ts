@@ -46,6 +46,6 @@ export function toWire(
 }
 
 /** Five decimals is about a metre — more precision than a bus position has. */
-function round5(n: number): number {
+export function round5(n: number): number {
   return Math.round(n * 1e5) / 1e5;
 }

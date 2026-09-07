@@ -35,6 +35,13 @@ export interface Snapshot {
   feedTimestamp: number | null;
   pollSeconds: number;
   vehicles: WireVehicle[];
+  /**
+   * Each vehicle's [lat, lon] from the tick before this one, keyed by entity
+   * id. Only present on the snapshot a client gets on first connect — see
+   * BusField.ingest, which uses it to seed a bus this client has never seen
+   * from a real prior fix instead of freezing it until the next live update.
+   */
+  previous?: Record<string, [number, number]>;
 }
 
 export interface RenderedBus {
@@ -296,10 +303,20 @@ export class BusField {
       const target: LatLon = [v.y, v.x];
       const existing = this.buses.get(v.i);
       const track = this.tracks(v.t, v.r);
+      // A bus this client has never seen before: the server's initial
+      // snapshot carries its real prior fix (see Snapshot.previous), so it
+      // can glide from that instead of sitting frozen until the next live
+      // update. Absent on every later snapshot, and absent here too if the
+      // bus is genuinely new to the feed since the last tick.
+      const seed = existing ? undefined : snapshot.previous?.[v.i];
 
       // Start the glide from wherever the bus is being drawn right now, not
       // from the previous sample. Otherwise a late snapshot makes it jump back.
-      const from = existing ? this.positionOf(existing, now).point : target;
+      const from = existing ? this.positionOf(existing, now).point : (seed ?? target);
+      // A seeded glide is already in progress as of the snapshot that seeded
+      // it, not as of this instant, so it lines up with what an already-open
+      // tab is showing for the same bus right now.
+      const startedAt = seed ? snapshot.generatedAt : now;
 
       const fromDistance = track ? projectOntoTrack(track, from, existing?.toDistance ?? undefined).distanceAlong : null;
       const toDistance = track
@@ -315,7 +332,7 @@ export class BusField {
         fromDistance,
         toDistance,
         track,
-        startedAt: now,
+        startedAt,
         durationMs,
         lastSeen: now,
         delay: v.l ?? null,

@@ -17,7 +17,7 @@ import {
   type Vehicle,
 } from "./gtfs-rt.js";
 import type { Env, Snapshot, StopPrediction, TripIndex } from "./types.js";
-import { toWire } from "./wire.js";
+import { round5, toWire } from "./wire.js";
 
 const SNAPSHOT_KEY = "live:snapshot";
 
@@ -52,9 +52,12 @@ export class LiveFeed extends DurableObject<Env> {
       this.ctx.acceptWebSocket(server);
 
       // Send the current state immediately so the map is populated on connect.
+      // previous rides along only here, not on the periodic broadcast below —
+      // it exists so THIS client's first ingest has two real fixes to glide
+      // between, not to repeat every ~90s to sockets that already have one.
       const snapshot = await this.currentSnapshot();
       if (snapshot) {
-        server.send(JSON.stringify(snapshot));
+        server.send(JSON.stringify({ ...snapshot, previous: await this.previousPositions() }));
       }
 
       await this.ensureAlarm();
@@ -64,9 +67,10 @@ export class LiveFeed extends DurableObject<Env> {
     if (url.pathname.endsWith("/snapshot")) {
       await this.ensureAlarm();
       const snapshot = await this.currentSnapshot();
-      return Response.json(snapshot ?? { error: "no snapshot yet" }, {
-        status: snapshot ? 200 : 503,
-      });
+      const body = snapshot
+        ? { ...snapshot, previous: await this.previousPositions() }
+        : { error: "no snapshot yet" };
+      return Response.json(body, { status: snapshot ? 200 : 503 });
     }
 
     if (url.pathname.endsWith("/predictions")) {
@@ -124,6 +128,10 @@ export class LiveFeed extends DurableObject<Env> {
 
     const vehicles = await this.fetchFeed(FEEDS.positions, apiKey, decodeVehicles);
     if (vehicles) {
+      // Kept only so a client connecting before the next tick can seed a
+      // glide from a real prior fix — see previousPositions().
+      const previousVehicles = (await this.ctx.storage.get<Vehicle[]>("vehicles")) ?? [];
+      await this.ctx.storage.put("previousVehicles", previousVehicles);
       await this.ctx.storage.put("vehicles", vehicles);
     }
 
@@ -207,6 +215,21 @@ export class LiveFeed extends DurableObject<Env> {
     this.trips = (await object.json()) as TripIndex;
     this.tripsVersion = version;
     return this.trips;
+  }
+
+  /**
+   * Last tick's real fix per vehicle id, for Snapshot.previous. Real data
+   * only — never a guess — which is why this stops at whatever the last poll
+   * actually saw rather than trying to fill in a vehicle that is new this
+   * tick.
+   */
+  private async previousPositions(): Promise<Record<string, [number, number]>> {
+    const previous = (await this.ctx.storage.get<Vehicle[]>("previousVehicles")) ?? [];
+    const out: Record<string, [number, number]> = {};
+    for (const v of previous) {
+      out[v.id] = [round5(v.lat), round5(v.lon)];
+    }
+    return out;
   }
 
   private async currentSnapshot(): Promise<Snapshot | null> {
