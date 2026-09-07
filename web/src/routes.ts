@@ -1,3 +1,4 @@
+import { isLate, type WireVehicle } from "./buses.js";
 import { routeLabelOf, type RouteInfo } from "./gtfs.js";
 
 /**
@@ -91,4 +92,95 @@ export function shouldDim(highlight: Highlight, routeId: string, express: boolea
   if (highlight.routeId) return routeId !== highlight.routeId;
   if (highlight.expressOnly) return !express;
   return false;
+}
+
+export interface RouteTally {
+  routeId: string;
+  label: string;
+  count: number;
+}
+
+/**
+ * Routes with the most buses on the road right now, busiest first.
+ *
+ * Buses with no route id are dropped, not tallied. The wire format sends `r` as
+ * `routeId ?? ""`, so a vehicle the feed gave no trip for arrives with an empty
+ * string, and every such bus across the network shares it. Left in, they form a
+ * single group large enough to top this table and render as a coloured pill with
+ * no text in it. findBunches and the map's route prefetch drop them for the same
+ * reason.
+ */
+export function busiestRoutes(
+  vehicles: WireVehicle[],
+  labelFor: (routeId: string) => string,
+  limit = 5,
+): RouteTally[] {
+  const counts = new Map<string, number>();
+  for (const v of vehicles) {
+    if (!v.r) continue;
+    counts.set(v.r, (counts.get(v.r) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .map(([routeId, count]) => ({ routeId, label: labelFor(routeId), count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+    .slice(0, limit);
+}
+
+/**
+ * How many buses a route needs before its delay is worth ranking.
+ *
+ * Without a floor the table is topped by whichever hourly suburban route
+ * happens to have one bus stuck in traffic, which says nothing about how the
+ * network is running. Three is the smallest number where a mean is not just one
+ * bus wearing a disguise.
+ */
+export const MIN_BUSES_FOR_DELAY_RANKING = 3;
+
+export interface RouteDelay {
+  routeId: string;
+  label: string;
+  /** Mean delay in seconds across the buses reporting one. */
+  meanDelay: number;
+  /** How many buses that mean is drawn from. */
+  count: number;
+}
+
+/**
+ * Routes running worst against schedule right now, worst first.
+ *
+ * Only counts buses that actually report a delay, and only reports a route once
+ * it is late by the same threshold the map already uses for a single bus, so
+ * the panel and the map never disagree about what "late" means.
+ */
+export function worstDelayedRoutes(
+  vehicles: WireVehicle[],
+  labelFor: (routeId: string) => string,
+  limit = 5,
+): RouteDelay[] {
+  const totals = new Map<string, { sum: number; count: number }>();
+
+  for (const v of vehicles) {
+    if (v.l == null) continue;
+    // Route-less buses are dropped here for the same reason as in
+    // busiestRoutes: they would all share the empty route id and average
+    // together into one unnameable row.
+    if (!v.r) continue;
+    const entry = totals.get(v.r) ?? { sum: 0, count: 0 };
+    entry.sum += v.l;
+    entry.count++;
+    totals.set(v.r, entry);
+  }
+
+  return [...totals.entries()]
+    .filter(([, t]) => t.count >= MIN_BUSES_FOR_DELAY_RANKING)
+    .map(([routeId, t]) => ({
+      routeId,
+      label: labelFor(routeId),
+      meanDelay: Math.round(t.sum / t.count),
+      count: t.count,
+    }))
+    .filter((r) => isLate(r.meanDelay))
+    .sort((a, b) => b.meanDelay - a.meanDelay || a.label.localeCompare(b.label))
+    .slice(0, limit);
 }

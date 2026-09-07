@@ -2,6 +2,7 @@ import {
   bearingAt,
   bearingBetween,
   buildTrack,
+  distance,
   lerp,
   pointAtDistance,
   projectOntoTrack,
@@ -43,7 +44,12 @@ export interface RenderedBus {
   lat: number;
   lon: number;
   bearing: number;
-  /** True while gliding between two real samples. */
+  /**
+   * True when distance(bus.from, bus.to) clears the jitter threshold. Not
+   * "moved since the last sample": ingest() resets `from` to wherever the bus
+   * is being drawn when a new snapshot arrives, which is not always the
+   * previous reported fix — see BusField.ingest.
+   */
   moving: boolean;
   /** Delay against schedule in seconds, or null when the feed gave none. */
   delay: number | null;
@@ -354,10 +360,13 @@ export class BusField {
     now: number,
     glide = true,
   ): { point: LatLon; bearing: number; moving: boolean } {
-    // Snapping (reduced motion) shows the latest sample outright, so progress
-    // is pinned to 1 and the bus never reads as moving between polls.
     const progress = glide ? clamp01((now - bus.startedAt) / bus.durationMs) : 1;
-    const moving = progress < 1;
+    // A fact about the feed, not the animation: whether the bus displaced
+    // between its last two samples. Independent of progress/glide on purpose —
+    // a parked bus that keeps transmitting the same fix is re-ingested every
+    // snapshot regardless, and reduced motion must not change what "moving"
+    // means, only how the position tweens.
+    const moving = distance(bus.from, bus.to) > MOVEMENT_THRESHOLD_METRES / METRES_PER_DEGREE;
 
     if (bus.track && bus.fromDistance !== null && bus.toDistance !== null) {
       // Guard against a bad projection sending the bus backwards along the
@@ -399,6 +408,16 @@ export class BusField {
  * make the express routes the ones that look broken.
  */
 const MAX_GLIDE_DEGREES = 0.03;
+
+/**
+ * A bus displaced less than this between its last two samples counts as
+ * parked, not moving. A terminus or a layover holds several buses that keep
+ * transmitting a GPS fix that wanders by a few metres of receiver jitter each
+ * poll, and that jitter must not read as travel. Twenty metres over a
+ * 90-second poll is about 0.8 km/h — comfortably clear of the jitter, and
+ * unambiguously stopped.
+ */
+const MOVEMENT_THRESHOLD_METRES = 20;
 
 function clamp01(n: number): number {
   return n < 0 ? 0 : n > 1 ? 1 : n;
@@ -447,4 +466,125 @@ export function shouldClearFollow(
 ): boolean {
   if (followId === null) return false;
   return !next || next.id !== followId;
+}
+
+/**
+ * Two buses on one route closer than this, going the same way, are bunched.
+ *
+ * Roughly a city block. Closer than that and two buses on the same route read
+ * as visibly together to a rider on the sidewalk; farther apart and they are
+ * merely both somewhere on the same street.
+ */
+export const BUNCH_METRES = 200;
+
+/**
+ * How far two headings may differ and still count as the same direction.
+ *
+ * Generous on purpose. The bearing is derived from route geometry rather than
+ * reported, so two buses a block apart on a curve genuinely differ by more than
+ * a few degrees. Ninety degrees would admit a bus turning off the route;
+ * forty-five separates "following each other" from "passing each other", which
+ * is the distinction that matters.
+ */
+export const BUNCH_BEARING_TOLERANCE = 45;
+
+/**
+ * geo.ts measures in equivalent degrees of latitude. One degree of latitude is
+ * about 111.32 km, which is what converts a metre threshold — BUNCH_METRES,
+ * MOVEMENT_THRESHOLD_METRES — into those units.
+ */
+const METRES_PER_DEGREE = 111_320;
+
+export interface Bunch {
+  routeId: string;
+  busIds: string[];
+}
+
+/** The smaller angle between two compass bearings, 0-180. */
+export function bearingDelta(a: number, b: number): number {
+  const d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
+/**
+ * Groups of buses on the same route that have closed up on each other — the
+ * "nothing for twenty minutes, then three at once" every rider knows.
+ *
+ * Two corrections stop it crying wolf. Both buses must be moving, because a
+ * terminus or a layover parks several buses together by design and that is not
+ * bunching. And both must be heading the same way, because two buses passing in
+ * opposite directions on the same street is the timetable working correctly.
+ *
+ * Grouping is transitive: three buses in a line form one bunch of three, not
+ * three overlapping pairs, which is how a rider would describe it.
+ */
+/**
+ * The bunches in `field` at `now`, detected from the samples just ingested.
+ *
+ * Exists so the glide argument below is not a decision buried in a .tsx file
+ * that no test can reach. It is load-bearing: ingest() has just reset startedAt
+ * for every bus in the snapshot, so a gliding read returns wherever each bus was
+ * being *drawn* the instant before, plus the bearing at the old fromDistance —
+ * up to a whole poll interval, 400-600m, against BUNCH_METRES's 200m. false
+ * snaps to the sample just ingested and the bearing at toDistance. The drawn
+ * lines still tween between polls, because animate() does its own gliding read.
+ */
+export function bunchesAt(field: BusField, now: number): Bunch[] {
+  return findBunches(field.positionsAt(now, false));
+}
+
+export function findBunches(buses: RenderedBus[], metres = BUNCH_METRES): Bunch[] {
+  const threshold = metres / METRES_PER_DEGREE;
+
+  const byRoute = new Map<string, RenderedBus[]>();
+  for (const bus of buses) {
+    if (!bus.moving) continue;
+    // A bus the feed gave no trip for arrives with routeId "" — the wire format
+    // sends routeId ?? "" — and every such bus in the region shares it. Left in,
+    // they group as one enormous "route" and any two of them that happen to pass
+    // within BUNCH_METRES on similar bearings draw a line claiming a bunch
+    // between buses that are not on the same route at all.
+    if (!bus.routeId) continue;
+    const fleet = byRoute.get(bus.routeId);
+    if (fleet) fleet.push(bus);
+    else byRoute.set(bus.routeId, [bus]);
+  }
+
+  const bunches: Bunch[] = [];
+
+  for (const [routeId, fleet] of byRoute) {
+    if (fleet.length < 2) continue;
+
+    // Union-find by repeated merging: fleets on one route are small enough that
+    // the simple form is faster to read than a proper union-find structure.
+    const groups: RenderedBus[][] = [];
+
+    for (const bus of fleet) {
+      const near = groups.filter((group) =>
+        group.some(
+          (other) =>
+            distance([bus.lat, bus.lon], [other.lat, other.lon]) <= threshold &&
+            bearingDelta(bus.bearing, other.bearing) <= BUNCH_BEARING_TOLERANCE,
+        ),
+      );
+
+      if (near.length === 0) {
+        groups.push([bus]);
+        continue;
+      }
+
+      // Joining two existing groups merges them, so a chain stays one bunch.
+      const merged = near.flat();
+      merged.push(bus);
+      for (const group of near) groups.splice(groups.indexOf(group), 1);
+      groups.push(merged);
+    }
+
+    for (const group of groups) {
+      if (group.length < 2) continue;
+      bunches.push({ routeId, busIds: group.map((bus) => bus.id) });
+    }
+  }
+
+  return bunches;
 }

@@ -11,7 +11,7 @@
     "deploy": "npm run build && wrangler deploy",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit && npm --prefix web exec tsc -- -b --force",
+    "typecheck": "tsc --noEmit && npm --prefix web run typecheck",
     "check": "npm run typecheck && npm test",
     "build:gtfs": "tsx scripts/build-gtfs.ts"
   },

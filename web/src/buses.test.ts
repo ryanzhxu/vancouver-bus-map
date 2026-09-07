@@ -3,11 +3,13 @@ import {
   arrivalsErrorText,
   BUS_ICON_MIN_ZOOM,
   BusField,
+  bunchesAt,
   countdown,
   DEPARTED_SLACK_SECONDS,
   describeAge,
   describeArrival,
   describeDelay,
+  findBunches,
   hasDeparted,
   hintText,
   isFeedStale,
@@ -16,6 +18,7 @@ import {
   markerShapeFor,
   shouldClearFollow,
   STALE_FEED_SECONDS,
+  type RenderedBus,
   type Snapshot,
   type WireVehicle,
 } from "./buses.js";
@@ -97,14 +100,13 @@ describe("BusField", () => {
       field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
 
       // Halfway through the interval the default glide is mid-tween, but a
-      // reduced-motion caller sees the bus already at its reported position and
-      // not moving, so nothing slides between polls.
+      // reduced-motion caller sees the bus already at its reported position,
+      // so nothing slides between polls.
       const mid = 1000 + 45_000;
       expect(field.positionsAt(mid, true)[0]!.lat).toBeCloseTo(49.29, 4);
 
       const snapped = field.positionsAt(mid, false)[0]!;
       expect(snapped.lat).toBeCloseTo(49.3, 6);
-      expect(snapped.moving).toBe(false);
     });
 
     it("stops at the target rather than overshooting when a snapshot is late", () => {
@@ -114,7 +116,34 @@ describe("BusField", () => {
 
       const late = field.positionsAt(1000 + 300_000)[0]!;
       expect(late.lat).toBeCloseTo(49.3, 6);
-      expect(late.moving).toBe(false);
+    });
+  });
+
+  describe("moving", () => {
+    it("reads false for a bus reporting the same spot twice, true for one that displaced", () => {
+      const parked = new BusField(noTracks);
+      parked.ingest(snapshot([vehicle({ y: 49.28, x: -123.12 })]), 0);
+      parked.ingest(snapshot([vehicle({ y: 49.28, x: -123.12 })]), 90_000);
+      expect(parked.positionsAt(90_000)[0]!.moving).toBe(false);
+
+      const travelling = new BusField(noTracks);
+      travelling.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
+      travelling.ingest(snapshot([vehicle({ y: 49.3 })]), 90_000);
+      expect(travelling.positionsAt(90_000)[0]!.moving).toBe(true);
+    });
+
+    it("reads the same whether or not the caller is gliding", () => {
+      // Reduced motion changes how the position tweens, not what "moving"
+      // means: it must not flip the flag on its own.
+      const field = new BusField(noTracks);
+      field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
+      field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
+
+      for (const now of [1000 + 45_000, 1000 + 90_000, 1000 + 300_000]) {
+        expect(field.positionsAt(now, false)[0]!.moving).toBe(
+          field.positionsAt(now, true)[0]!.moving,
+        );
+      }
     });
   });
 
@@ -475,5 +504,134 @@ describe("shouldClearFollow", () => {
 
   it("stays cleared when nothing was being followed", () => {
     expect(shouldClearFollow({ id: "bus-1" }, null)).toBe(false);
+  });
+});
+
+const rendered = (over: Partial<RenderedBus> = {}): RenderedBus => ({
+  id: "a",
+  routeId: "route1",
+  tripId: "trip1",
+  lat: 49.28,
+  lon: -123.12,
+  bearing: 0,
+  moving: true,
+  delay: null,
+  ...over,
+});
+
+/** Roughly north by `metres`, at Vancouver's latitude. */
+const northOf = (lat: number, metres: number) => lat + metres / 111_320;
+
+describe("findBunches", () => {
+  it("finds two buses on one route sitting on top of each other", () => {
+    const bunches = findBunches([
+      rendered({ id: "a" }),
+      rendered({ id: "b", lat: northOf(49.28, 80) }),
+    ]);
+    expect(bunches).toHaveLength(1);
+    expect([...(bunches[0]?.busIds ?? [])].sort()).toEqual(["a", "b"]);
+  });
+
+  it("leaves the same two alone once they are properly spaced", () => {
+    expect(
+      findBunches([rendered({ id: "a" }), rendered({ id: "b", lat: northOf(49.28, 900) })]),
+    ).toEqual([]);
+  });
+
+  it("does not bunch buses on different routes", () => {
+    expect(
+      findBunches([
+        rendered({ id: "a", routeId: "route1" }),
+        rendered({ id: "b", routeId: "route2", lat: northOf(49.28, 50) }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("does not bunch buses going opposite ways", () => {
+    // Two buses passing on the same street are the timetable working, not
+    // bunching. Only the same direction counts.
+    expect(
+      findBunches([
+        rendered({ id: "a", bearing: 0 }),
+        rendered({ id: "b", bearing: 180, lat: northOf(49.28, 50) }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("does not bunch buses parked at a terminus", () => {
+    // Exercises the real mechanism behind "moving", not a hand-set flag: two
+    // buses that keep transmitting but report the same spot on both polls.
+    const field = new BusField(noTracks);
+    const a = vehicle({ i: "a", y: 49.28, x: -123.12 });
+    const b = vehicle({ i: "b", y: northOf(49.28, 30), x: -123.12 });
+    field.ingest(snapshot([a, b]), 0);
+    field.ingest(snapshot([a, b]), 90_000);
+
+    expect(findBunches(field.positionsAt(90_000))).toEqual([]);
+  });
+
+  it("does not bunch buses the feed gave no route for", () => {
+    // Two route-less buses share the empty route id, so without a guard they
+    // group together and the map draws a line between buses that have no route
+    // in common. The status bar's bunched count inflates with them.
+    expect(
+      findBunches([
+        rendered({ id: "a", routeId: "" }),
+        rendered({ id: "b", routeId: "", lat: northOf(49.28, 50) }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("detects a bunch from the sample just ingested, not the last drawn frame", () => {
+    // The reason BusMap passes glide=false here. ingest() resets startedAt for
+    // every bus in the snapshot, so a gliding read at that instant returns where
+    // each bus was being DRAWN a moment earlier — a whole poll interval stale.
+    // These two close from 800m apart to 100m, which straddles BUNCH_METRES, so
+    // the gliding read misses the bunch entirely.
+    const field = new BusField(noTracks);
+    field.ingest(
+      snapshot([
+        vehicle({ i: "a", y: 49.28 }),
+        vehicle({ i: "b", y: northOf(49.28, 800) }),
+      ]),
+      0,
+    );
+    field.ingest(
+      snapshot([
+        vehicle({ i: "a", y: northOf(49.28, 900) }),
+        vehicle({ i: "b", y: northOf(49.28, 1000) }),
+      ]),
+      90_000,
+    );
+
+    expect(bunchesAt(field, 90_000)).toHaveLength(1);
+    // What the call would have found without the rule bunchesAt carries.
+    expect(findBunches(field.positionsAt(90_000))).toEqual([]);
+  });
+
+  it("groups three close buses as one bunch, not three pairs", () => {
+    // a-b and b-c are each within BUNCH_METRES, but a-c (300m) is not: a naive
+    // all-pairs clique would split this into two overlapping pairs or none.
+    // The chain has to merge transitively through b to read as one bunch.
+    const bunches = findBunches([
+      rendered({ id: "a" }),
+      rendered({ id: "b", lat: northOf(49.28, 150) }),
+      rendered({ id: "c", lat: northOf(49.28, 300) }),
+    ]);
+    expect(bunches).toHaveLength(1);
+    expect(bunches[0]?.busIds).toHaveLength(3);
+  });
+
+  it("returns nothing for an empty field or a single bus", () => {
+    expect(findBunches([])).toEqual([]);
+    expect(findBunches([rendered()])).toEqual([]);
+  });
+
+  it("treats bearings either side of north as the same direction", () => {
+    const bunches = findBunches([
+      rendered({ id: "a", bearing: 350 }),
+      rendered({ id: "b", bearing: 10, lat: northOf(49.28, 50) }),
+    ]);
+    expect(bunches).toHaveLength(1);
   });
 });

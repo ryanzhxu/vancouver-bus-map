@@ -6,7 +6,17 @@ import {
   nextBasemap,
   type BasemapProvider,
 } from "./basemap.js";
-import { BusField, isLate, markerShapeFor, type Snapshot, type WireVehicle } from "./buses.js";
+import {
+  BusField,
+  bunchesAt,
+  isLate,
+  markerShapeFor,
+  type Bunch,
+  type RenderedBus,
+  type Snapshot,
+  type WireVehicle,
+} from "./buses.js";
+import { distance } from "./geo.js";
 import { DEFAULT_ROUTE_COLOR, GtfsData } from "./gtfs.js";
 import { distinctRouteColors, drawMarker, iconName } from "./icons.js";
 import { isExpress, shouldDim, type Highlight } from "./routes.js";
@@ -22,6 +32,13 @@ const BOUNDS: [number, number, number, number] = [-123.55, 48.95, -122.4, 49.45]
  * a selected bus. Kept in step with the --late token the legend swatch uses.
  */
 const LATE_COLOR = "#e8590c";
+
+/**
+ * The line joining buses in a bunch. Kept in step with the --bunched token the
+ * status-bar dot uses, so the map and the status bar never show two different
+ * purples for the same thing.
+ */
+const BUNCHED_COLOR = "#9b59b6";
 
 const darkQuery =
   typeof window !== "undefined" && window.matchMedia
@@ -39,7 +56,7 @@ const reduceMotionQuery =
 
 export type FeedState =
   | { kind: "connecting" }
-  | { kind: "live"; buses: number; late: number; feedTime: number | null }
+  | { kind: "live"; buses: number; late: number; bunched: number; feedTime: number | null }
   /** Static timetables work; the realtime feed does not. */
   | { kind: "schedules-only" }
   | { kind: "error"; message: string };
@@ -118,6 +135,18 @@ export function BusMap({
     new Map<string, { r: string; d?: string; p: string; s: number; a?: number; l?: number }>(),
   );
   const selectedId = useRef<string | null>(null);
+  /**
+   * The bunch groups from the most recent snapshot — each a route id plus the
+   * ids of the buses in it. animate() derives both the flat bunched-id set for
+   * the per-bus property and the connecting lines from this single source.
+   *
+   * Recomputed once per snapshot in apply(), not once per frame in animate():
+   * findBunches groups by route then compares pairwise within each group, and
+   * the busiest routes carry 40+ buses at peak, so running it at 60fps would be
+   * thousands of distance checks a second for a number that only changes every
+   * 90-second poll. animate() just reads this ref.
+   */
+  const bunchesRef = useRef<Bunch[]>([]);
 
   useEffect(() => {
     if (!container.current) return;
@@ -204,6 +233,10 @@ export function BusMap({
     let pollTimer: number | undefined;
     let reconnectTimer: number | undefined;
     let reconnectDelay = 2000;
+    // The bunch-lines feature count from the last setData call, so animate()
+    // can tell "still nothing to draw" from "just went to nothing" and skip
+    // the redundant empty-to-empty update.
+    let prevBunchLineFeatureCount = 0;
 
     // Not "load". OpenFreeMap's style carries an ne2_shaded raster source that
     // never finishes loading, so isStyleLoaded() stays false forever and "load"
@@ -272,6 +305,32 @@ export function BusMap({
           "circle-stroke-width": 1.5,
           "circle-stroke-color": ["get", "color"],
           "circle-stroke-opacity": ["case", ["get", "dim"], 0.15, 0.75],
+        },
+      }, "bus-icons");
+
+      map.addSource("bunch-lines", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+
+      // A line joining the buses in one bunch, so a rider sees which buses
+      // form it rather than just that each one is tagged. Genuinely distinct
+      // from the filled late halo and the unfilled express ring: MapLibre
+      // circle layers cannot be dashed, but a line layer can, so this is
+      // actually distinguished by pattern, not only by its own hue.
+      map.addLayer({
+        id: "bunch-lines",
+        type: "line",
+        source: "bunch-lines",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": BUNCHED_COLOR,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 9, 1.5, 15, 3],
+          // Same pair of values as the express ring's circle-stroke-opacity, so
+          // a bunch line fades exactly as much as the buses forming it do when
+          // a route is selected or the express filter is on.
+          "line-opacity": ["case", ["get", "dim"], 0.15, 0.75],
+          "line-dasharray": [1, 1],
         },
       }, "bus-icons");
 
@@ -592,10 +651,20 @@ export function BusMap({
       diagnostics.snapshots++;
       diagnostics.buses = snapshot.vehicles.length;
       field.ingest(snapshot);
+
+      // Computed once here, not per frame in animate(), and the one source of
+      // truth animate() draws both the per-bus flag and the connecting lines
+      // from, so the map and the status bar count below can never disagree.
+      // bunchesAt, not findBunches directly: it carries the glide=false rule
+      // that detection depends on, in a module a test can reach.
+      bunchesRef.current = bunchesAt(field, Date.now());
+      const bunchedCount = new Set(bunchesRef.current.flatMap((b) => b.busIds)).size;
+
       onStateRef.current({
         kind: "live",
         buses: snapshot.vehicles.length,
         late: snapshot.vehicles.filter((v) => isLate(v.l)).length,
+        bunched: bunchedCount,
         feedTime: snapshot.feedTimestamp,
       });
 
@@ -637,10 +706,36 @@ export function BusMap({
       // effect without a reload; the check is a cheap boolean.
       const glide = !(reduceMotionQuery?.matches ?? false);
       const positions = field.positionsAt(Date.now(), glide);
+      const bunches = bunchesRef.current;
+      const bunchedIds = new Set(bunches.flatMap((b) => b.busIds));
+      // Filled in below as the fleet loop (already visiting every bus once)
+      // happens to pass a bunched one, so building the bunch lines afterward
+      // never needs a second pass over the whole fleet.
+      const bunchedPositions = new Map<string, RenderedBus>();
+
+      // Both loop-invariant across the ~900 buses below: every bus shares one
+      // zoom and the marker shape it implies, so getZoom() and markerShapeFor()
+      // only need calling once per frame, not once per bus. iconName then only
+      // depends on that fixed shape plus each bus's colour, and TransLink
+      // colours just 12 routes, so caching by colour turns up to 900 calls a
+      // frame into at most a dozen.
+      const shape = markerShapeFor(map.getZoom());
+      const iconByColor = new Map<string, string>();
+      const iconFor = (color: string): string => {
+        let name = iconByColor.get(color);
+        if (name === undefined) {
+          name = iconName(shape, color);
+          iconByColor.set(color, name);
+        }
+        return name;
+      };
+
       const features = positions.map((bus) => {
         const label = gtfs.routeLabel(bus.routeId);
         const color = gtfs.routeColor(bus.routeId);
         const express = isExpress(label);
+        const bunched = bunchedIds.has(bus.id);
+        if (bunched) bunchedPositions.set(bus.id, bus);
         return {
           type: "Feature" as const,
           geometry: { type: "Point" as const, coordinates: [bus.lon, bus.lat] },
@@ -652,12 +747,72 @@ export function BusMap({
             late: isLate(bus.delay),
             express,
             dim: shouldDim(highlightRef.current, bus.routeId, express),
-            icon: iconName(markerShapeFor(map.getZoom()), color),
+            icon: iconFor(color),
           },
         };
       });
 
       source.setData({ type: "FeatureCollection", features });
+
+      // One line per bunch, joining the buses in it. Only the (few) already-
+      // resolved bunched positions are touched here, not the whole fleet.
+      const bunchLineSource = map.getSource("bunch-lines") as
+        | maplibregl.GeoJSONSource
+        | undefined;
+      if (bunchLineSource) {
+        const lineFeatures = bunches.flatMap((bunch) => {
+          const points = bunch.busIds
+            .map((id) => bunchedPositions.get(id))
+            .filter((p): p is RenderedBus => p !== undefined);
+          // A bus can leave the field between the snapshot that found this
+          // bunch and this frame, leaving too few points to draw a line.
+          if (points.length < 2) return [];
+
+          // Chain rather than star: order every other point by its distance
+          // from one end, which reads as a line along the group rather than
+          // spokes from an arbitrary bus.
+          const anchor = points[0]!;
+          const ordered = [
+            anchor,
+            ...points
+              .slice(1)
+              .sort(
+                (a, b) =>
+                  distance([anchor.lat, anchor.lon], [a.lat, a.lon]) -
+                  distance([anchor.lat, anchor.lon], [b.lat, b.lon]),
+              ),
+          ];
+
+          // The same rule the per-bus icon uses, so a selected route or the
+          // express filter dims a bunch line exactly when it dims the buses
+          // that form it — one rule, not a second one that can drift from it.
+          const dim = shouldDim(
+            highlightRef.current,
+            bunch.routeId,
+            isExpress(gtfs.routeLabel(bunch.routeId)),
+          );
+
+          return [
+            {
+              type: "Feature" as const,
+              geometry: {
+                type: "LineString" as const,
+                coordinates: ordered.map((p) => [p.lon, p.lat]),
+              },
+              properties: { dim },
+            },
+          ];
+        });
+
+        // Skip the round trip when there is nothing to draw and nothing to
+        // clear either: bunches are rare, so most of the day this collection
+        // is empty on both sides and setData would just be 60 no-op worker
+        // round trips a second.
+        if (lineFeatures.length > 0 || prevBunchLineFeatureCount > 0) {
+          bunchLineSource.setData({ type: "FeatureCollection", features: lineFeatures });
+        }
+        prevBunchLineFeatureCount = lineFeatures.length;
+      }
 
       // Follow the selected bus. setCenter, not easeTo: an eased camera has its
       // own animation clock and would fight a target that moves every frame.

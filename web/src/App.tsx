@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { BusMap, type FeedState, type SelectedBus, type SelectedStop } from "./BusMap.js";
 import { RouteSearch } from "./RouteSearch.js";
+import { SystemPulse } from "./SystemPulse.js";
 import {
   arrivalsErrorText,
   countdown,
@@ -15,8 +16,9 @@ import {
   type ArrivalsFailure,
   type WireVehicle,
 } from "./buses.js";
-import type { GtfsData } from "./gtfs.js";
-import type { Highlight, RouteMatch } from "./routes.js";
+import { DEFAULT_ROUTE_COLOR, type GtfsData } from "./gtfs.js";
+import { busiestRoutes, worstDelayedRoutes, type Highlight, type RouteMatch } from "./routes.js";
+import { useEscapeToClose } from "./useEscapeToClose.js";
 
 /** Matches the stop layer's minzoom in BusMap. */
 const STOP_MIN_ZOOM = 14;
@@ -45,8 +47,13 @@ export function App() {
   const [expressOnly, setExpressOnly] = useState(false);
   const [vehicles, setVehicles] = useState<WireVehicle[]>([]);
   const [followId, setFollowId] = useState<string | null>(null);
+  const [showPulse, setShowPulse] = useState(false);
 
   const highlight: Highlight = { routeId: route?.routeId ?? null, expressOnly };
+  const labelFor = (routeId: string) => gtfs?.routeLabel(routeId) ?? routeId;
+  const colorFor = (routeId: string) => gtfs?.routeColor(routeId) ?? DEFAULT_ROUTE_COLOR;
+  const busiest = busiestRoutes(vehicles, labelFor);
+  const worst = worstDelayedRoutes(vehicles, labelFor);
 
   return (
     <div className="app">
@@ -96,6 +103,14 @@ export function App() {
         <StatusPill feed={feed} />
         <button
           className="about-button"
+          onClick={() => setShowPulse((on) => !on)}
+          aria-label="System pulse"
+          aria-expanded={showPulse}
+        >
+          Pulse
+        </button>
+        <button
+          className="about-button"
           onClick={() => setShowAbout(true)}
           aria-label="About this map"
         >
@@ -103,27 +118,23 @@ export function App() {
         </button>
       </div>
 
+      {showPulse && (
+        <SystemPulse
+          busiest={busiest}
+          worst={worst}
+          colorFor={colorFor}
+          onSelectRoute={(routeId) => {
+            const info = gtfs?.routes.get(routeId);
+            if (info) setRoute({ routeId, label: labelFor(routeId), name: info.n });
+            setShowPulse(false);
+          }}
+          onClose={() => setShowPulse(false)}
+        />
+      )}
+
       {showAbout && <AboutSheet onClose={() => setShowAbout(false)} />}
     </div>
   );
-}
-
-/**
- * Dismiss an open card or sheet when the user presses Escape.
- *
- * Every card is a role="dialog", but the map behind it has no keyboard exit, so
- * without this a keyboard or switch user who opens the bus card or the stop card
- * can close it only by finding the small × button. The About sheet already
- * closed on Escape; this shares one handler so all three behave the same.
- */
-function useEscapeToClose(onClose: () => void): void {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 }
 
 function BusCard({
@@ -378,6 +389,12 @@ function StatusPill({ feed }: { feed: FeedState }) {
             <strong>{feed.late}</strong> {feed.late === 1 ? "bus" : "buses"} 5+ min late
           </span>
         )}
+        {feed.bunched > 0 && (
+          <span className="bunch-note">
+            <span className="dot bunched" aria-hidden="true" />
+            <strong>{feed.bunched}</strong> bunched
+          </span>
+        )}
       </div>
     );
   }
@@ -434,6 +451,10 @@ function AboutSheet({ onClose }: { onClose: () => void }) {
           RapidBus (R1&ndash;R6) and the 99 B-Line are ringed in their own colour.
           They are TransLink's frequent express services, and the only bus routes
           the agency gives a colour of its own.
+        </p>
+        <p className="note">
+          A dashed purple line joins buses on the same route that have closed up
+          on each other, so a rider can see the bunch, not just that it exists.
         </p>
         <p className="fine">{ATTRIBUTION}</p>
         <p className="fine">

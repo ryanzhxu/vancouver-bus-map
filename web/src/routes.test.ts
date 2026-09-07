@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { isExpress, searchRoutes, shouldDim, type Highlight } from "./routes.js";
+import {
+  busiestRoutes,
+  isExpress,
+  MIN_BUSES_FOR_DELAY_RANKING,
+  searchRoutes,
+  shouldDim,
+  worstDelayedRoutes,
+  type Highlight,
+} from "./routes.js";
 import type { RouteInfo } from "./gtfs.js";
+import type { WireVehicle } from "./buses.js";
 
 describe("isExpress", () => {
   it("counts every RapidBus line", () => {
@@ -104,5 +113,100 @@ describe("shouldDim", () => {
     // express filter is on would dim the very route the user just picked.
     const both: Highlight = { routeId: "6644", expressOnly: true };
     expect(shouldDim(both, "6644", false)).toBe(false);
+  });
+});
+
+const wire = (r: string, l?: number): WireVehicle => ({
+  i: `${r}-${Math.random()}`,
+  r,
+  t: "trip",
+  y: 49.28,
+  x: -123.12,
+  s: 1,
+  p: "stop",
+  ...(l === undefined ? {} : { l }),
+});
+
+const label = (id: string) => (id === "6641" ? "99" : id === "37808" ? "R1" : id);
+
+describe("busiestRoutes", () => {
+  it("ranks routes by how many buses are running", () => {
+    const result = busiestRoutes(
+      [wire("6641"), wire("6641"), wire("6641"), wire("37808"), wire("37808"), wire("10")],
+      label,
+    );
+    expect(result[0]).toMatchObject({ routeId: "6641", label: "99", count: 3 });
+    expect(result[1]).toMatchObject({ routeId: "37808", count: 2 });
+    expect(result[2]).toMatchObject({ routeId: "10", count: 1 });
+  });
+
+  it("honours the limit", () => {
+    expect(busiestRoutes([wire("a"), wire("b"), wire("c")], label, 2)).toHaveLength(2);
+  });
+
+  it("returns nothing for an empty snapshot", () => {
+    expect(busiestRoutes([], label)).toEqual([]);
+  });
+
+  it("drops buses the feed gave no route for", () => {
+    // The wire format sends r as routeId ?? "", so route-less buses all share
+    // the empty id. Tallied together they would outrank real routes and render
+    // as a pill with nothing written on it.
+    const result = busiestRoutes(
+      [...Array.from({ length: 4 }, () => wire("")), wire("6641"), wire("6641")],
+      label,
+    );
+    expect(result.map((r) => r.routeId)).not.toContain("");
+    expect(result[0]).toMatchObject({ routeId: "6641", count: 2 });
+  });
+});
+
+describe("worstDelayedRoutes", () => {
+  it("ranks by mean delay, worst first", () => {
+    const vehicles = [
+      ...Array.from({ length: 3 }, () => wire("slow", 600)),
+      ...Array.from({ length: 3 }, () => wire("ok", 60)),
+    ];
+    const result = worstDelayedRoutes(vehicles, label);
+    expect(result[0]?.routeId).toBe("slow");
+    expect(result[0]?.meanDelay).toBe(600);
+  });
+
+  it("ignores a route with too few buses to mean anything", () => {
+    // One very late bus on an hourly suburban route must not top a table about
+    // how the network is running.
+    const vehicles = [wire("lonely", 3000), ...Array.from({ length: 3 }, () => wire("busy", 400))];
+    const result = worstDelayedRoutes(vehicles, label);
+    expect(result.map((r) => r.routeId)).not.toContain("lonely");
+    expect(result[0]?.routeId).toBe("busy");
+  });
+
+  it("ignores buses with no delay reading", () => {
+    const vehicles = [
+      wire("mixed", 300),
+      wire("mixed", 300),
+      wire("mixed", 300),
+      wire("mixed"),
+    ];
+    expect(worstDelayedRoutes(vehicles, label)[0]?.count).toBe(3);
+  });
+
+  it("leaves out routes running to time", () => {
+    const vehicles = Array.from({ length: 4 }, () => wire("punctual", -30));
+    expect(worstDelayedRoutes(vehicles, label)).toEqual([]);
+  });
+
+  it("drops buses the feed gave no route for", () => {
+    const vehicles = [
+      ...Array.from({ length: 4 }, () => wire("", 3000)),
+      ...Array.from({ length: 3 }, () => wire("6641", 400)),
+    ];
+    const result = worstDelayedRoutes(vehicles, label);
+    expect(result.map((r) => r.routeId)).not.toContain("");
+    expect(result[0]?.routeId).toBe("6641");
+  });
+
+  it("names the floor it applies", () => {
+    expect(MIN_BUSES_FOR_DELAY_RANKING).toBeGreaterThan(1);
   });
 });

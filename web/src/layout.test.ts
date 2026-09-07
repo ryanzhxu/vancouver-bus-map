@@ -89,6 +89,31 @@ describe("bottom-of-screen layout", () => {
     expect(attributionTopPx()).toBe(86);
   });
 
+  it("lifts the pulse panel clear of the status bar that opens it", () => {
+    // The panel sits at z-index 6 over a bar at 3, so any shortfall here puts it
+    // on top of the Pulse and About buttons themselves. .statusbar has no height
+    // of its own: it is one --tap-tall button plus its own padding and border.
+    // Deriving that here rather than trusting the literal is the point — the
+    // 56px this replaced was correct against an older, shorter bar.
+    // The bar's only child that sets a height is the button, which takes --tap.
+    expect(declaration(appCss, ".about-button", "min-height")).toBe("var(--tap)");
+    const buttonHeight = px(declaration(appCss, ":root", "--tap"));
+    const paddingTop = px(declaration(appCss, ".statusbar", "padding").split(/\s+/)[0] ?? "");
+    // padding-bottom is max(0.5rem, env(...)), so its floor is that 0.5rem.
+    const paddingBottom = px(
+      /max\(\s*([\d.]+rem)/.exec(declaration(appCss, ".statusbar", "padding-bottom"))?.[1] ?? "",
+    );
+    const border = px(declaration(appCss, ".statusbar", "border-top").split(/\s+/)[0] ?? "");
+    const statusbarHeight = buttonHeight + paddingTop + paddingBottom + border;
+
+    expect(statusbarHeight).toBe(61);
+    // The panel carries the same env() inset the bar does, so clearing it at a
+    // zero inset clears it everywhere.
+    expect(offsetPx(declaration(appCss, ".pulse", "bottom"))).toBeGreaterThanOrEqual(
+      statusbarHeight,
+    );
+  });
+
   it("caps the card height so it never overflows above the viewport", () => {
     // .app is overflow:hidden, so a card taller than the space above its bottom
     // anchor loses its header and × button off the top of the screen. The cap

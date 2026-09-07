@@ -28,6 +28,11 @@
      swatch, never text, so it need not meet the 4.5:1 text-contrast rule. Kept
      identical in both themes so the swatch always matches the map ring. */
   --late: #e8590c;
+  /* The bunched-buses flag. Decorative only, same reasoning as --late: it
+     colours the status-bar dot and the map's connecting line, never text, and
+     is kept identical in both themes so the two never show two purples for
+     the same thing. */
+  --bunched: #9b59b6;
   --shadow: 0 1px 2px rgb(20 26 33 / 12%), 0 8px 24px -12px rgb(20 26 33 / 30%);
 
   --tap: 44px;
@@ -159,6 +164,9 @@ body {
 .dot.late {
   background: var(--late);
 }
+.dot.bunched {
+  background: var(--bunched);
+}
 
 /* The map legend: ties the orange halo on the map to the five-minute threshold
    in words. Wraps to the next line as one unit rather than breaking the phrase. */
@@ -171,6 +179,20 @@ body {
 }
 
 .late-note strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Same layout as .late-note: a dot plus a count, wrapping as one unit. */
+.bunch-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.bunch-note strong {
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
@@ -327,6 +349,67 @@ body {
 .route-badge.express {
   font-weight: 700;
 }
+
+/* ---------- system pulse panel ---------- */
+
+.pulse {
+  position: absolute;
+  right: 12px;
+  /* .statusbar's own height, so the panel sits above it rather than over it:
+     1px border + 0.5rem top padding + one --tap (44px) button + max(0.5rem,
+     env(safe-area-inset-bottom)) bottom padding = 61px at zero inset. Without
+     this the panel painted over the bar on every device, and on a notched
+     phone covered the Pulse and About buttons that open it. */
+  bottom: calc(61px + env(safe-area-inset-bottom));
+  width: min(280px, calc(100vw - 24px));
+  z-index: 6;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 0.6rem 0.75rem 0.75rem;
+  /* Same reason .routesearch-results caps itself: in phone landscape the row
+     list can otherwise run off the bottom of the viewport. */
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.pulse-head { display: flex; justify-content: space-between; align-items: center; }
+.pulse-head button {
+  flex: none;
+  width: var(--tap);
+  height: var(--tap);
+  margin: -0.2rem -0.2rem -0.2rem 0;
+  font-size: 1.3rem;
+  line-height: 1;
+  color: var(--ink-3);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.pulse h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; margin: 10px 0 4px; }
+.pulse-list { list-style: none; margin: 0; padding: 0; }
+.pulse-list button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0.4rem 0.5rem;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.pulse-value { margin-left: auto; font-variant-numeric: tabular-nums; }
+.pulse-sub { opacity: 0.65; font-size: 11px; }
+.pulse-empty { margin: 0; color: var(--ink-3); font-size: 0.88rem; }
 
 /* ---------- about sheet ---------- */
 
