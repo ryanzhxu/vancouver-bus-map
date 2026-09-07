@@ -3,7 +3,7 @@
 A live map of every bus in Metro Vancouver, plus the timetable for any stop,
 running entirely on Cloudflare.
 
-**Live:** https://vancouver-bus-map.rxlab.workers.dev
+**Live:** https://vanbus.ryanxu.dev
 
 Buses glide along their real route geometry between updates, rather than
 teleporting every 90 seconds. Tap a bus for its destination and next stop; tap a
