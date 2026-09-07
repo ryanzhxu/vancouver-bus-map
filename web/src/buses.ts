@@ -44,7 +44,12 @@ export interface RenderedBus {
   lat: number;
   lon: number;
   bearing: number;
-  /** True when the bus actually changed position between its last two samples. */
+  /**
+   * True when distance(bus.from, bus.to) clears the jitter threshold. Not
+   * "moved since the last sample": ingest() resets `from` to wherever the bus
+   * is being drawn when a new snapshot arrives, which is not always the
+   * previous reported fix — see BusField.ingest.
+   */
   moving: boolean;
   /** Delay against schedule in seconds, or null when the feed gave none. */
   delay: number | null;

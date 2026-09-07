@@ -105,6 +105,7 @@ export function App() {
           className="about-button"
           onClick={() => setShowPulse((on) => !on)}
           aria-label="System pulse"
+          aria-expanded={showPulse}
         >
           Pulse
         </button>
@@ -450,6 +451,10 @@ function AboutSheet({ onClose }: { onClose: () => void }) {
           RapidBus (R1&ndash;R6) and the 99 B-Line are ringed in their own colour.
           They are TransLink's frequent express services, and the only bus routes
           the agency gives a colour of its own.
+        </p>
+        <p className="note">
+          A dashed purple line joins buses on the same route that have closed up
+          on each other, so a rider can see the bunch, not just that it exists.
         </p>
         <p className="fine">{ATTRIBUTION}</p>
         <p className="fine">

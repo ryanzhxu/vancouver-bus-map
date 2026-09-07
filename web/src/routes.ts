@@ -100,14 +100,25 @@ export interface RouteTally {
   count: number;
 }
 
-/** Routes with the most buses on the road right now, busiest first. */
+/**
+ * Routes with the most buses on the road right now, busiest first.
+ *
+ * Buses with no route id are dropped, not tallied. The wire format sends `r` as
+ * `routeId ?? ""`, so a vehicle the feed gave no trip for arrives with an empty
+ * string, and every such bus across the network shares it. Left in, they form a
+ * single group large enough to top this table and render as a coloured pill with
+ * no text in it. The map's own route set drops them for the same reason.
+ */
 export function busiestRoutes(
   vehicles: WireVehicle[],
   labelFor: (routeId: string) => string,
   limit = 5,
 ): RouteTally[] {
   const counts = new Map<string, number>();
-  for (const v of vehicles) counts.set(v.r, (counts.get(v.r) ?? 0) + 1);
+  for (const v of vehicles) {
+    if (!v.r) continue;
+    counts.set(v.r, (counts.get(v.r) ?? 0) + 1);
+  }
 
   return [...counts.entries()]
     .map(([routeId, count]) => ({ routeId, label: labelFor(routeId), count }))
@@ -150,6 +161,10 @@ export function worstDelayedRoutes(
 
   for (const v of vehicles) {
     if (v.l == null) continue;
+    // Route-less buses are dropped here for the same reason as in
+    // busiestRoutes: they would all share the empty route id and average
+    // together into one unnameable row.
+    if (!v.r) continue;
     const entry = totals.get(v.r) ?? { sum: 0, count: 0 };
     entry.sum += v.l;
     entry.count++;

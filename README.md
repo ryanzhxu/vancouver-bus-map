@@ -47,9 +47,12 @@ Verified against live payloads, not documentation:
 - **Position is all you get.** No bearing, no speed, no odometer, no occupancy
   and no congestion level are populated on any vehicle — verified against a
   live payload of 579 vehicles, not assumed. `current_status` is the exception:
-  it is populated on every vehicle and decoded into `Vehicle.status`
-  (`src/gtfs-rt.ts`), though the wire format sent to the browser does not carry
-  it. Heading is derived from the route geometry.
+  every vehicle in that sample carried one, and it is decoded into
+  `Vehicle.status` (`src/gtfs-rt.ts`), though the wire format sent to the
+  browser does not carry it. Treat it as the one field that does come through,
+  not as guaranteed — GTFS-Realtime declares it `[default = IN_TRANSIT_TO]`, so
+  a vehicle in that state may legitimately omit it. Heading is derived from the
+  route geometry.
 - Trip updates reach roughly **20 stops ahead** of each bus, so a stop further
   down a line has no live prediction even while the route runs normally.
 - A handful of buses report position exactly `(0, 0)` when they lose GPS. The
@@ -104,6 +107,7 @@ src/
   stop-api.ts          GET /api/stop/{id}
   index.ts             Worker routes
 web/src/
+  App.tsx              the shell: shared state, status bar, and the dialog cards
   BusMap.tsx           MapLibre, layers, interaction
   basemap.ts           keyless vector basemap providers, with a CARTO fallback
   geo.ts               polyline projection and interpolation
@@ -124,7 +128,7 @@ scripts/
 ```sh
 npm install && npm --prefix web install
 
-npm test           # 223 tests
+npm test           # 225 tests
 npm run typecheck
 npm run dev              # wrangler on :8787
 npm --prefix web run dev # Vite on :5173, proxies /api

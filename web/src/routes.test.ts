@@ -147,6 +147,18 @@ describe("busiestRoutes", () => {
   it("returns nothing for an empty snapshot", () => {
     expect(busiestRoutes([], label)).toEqual([]);
   });
+
+  it("drops buses the feed gave no route for", () => {
+    // The wire format sends r as routeId ?? "", so route-less buses all share
+    // the empty id. Tallied together they would outrank real routes and render
+    // as a pill with nothing written on it.
+    const result = busiestRoutes(
+      [...Array.from({ length: 4 }, () => wire("")), wire("6641"), wire("6641")],
+      label,
+    );
+    expect(result.map((r) => r.routeId)).not.toContain("");
+    expect(result[0]).toMatchObject({ routeId: "6641", count: 2 });
+  });
 });
 
 describe("worstDelayedRoutes", () => {
@@ -182,6 +194,16 @@ describe("worstDelayedRoutes", () => {
   it("leaves out routes running to time", () => {
     const vehicles = Array.from({ length: 4 }, () => wire("punctual", -30));
     expect(worstDelayedRoutes(vehicles, label)).toEqual([]);
+  });
+
+  it("drops buses the feed gave no route for", () => {
+    const vehicles = [
+      ...Array.from({ length: 4 }, () => wire("", 3000)),
+      ...Array.from({ length: 3 }, () => wire("6641", 400)),
+    ];
+    const result = worstDelayedRoutes(vehicles, label);
+    expect(result.map((r) => r.routeId)).not.toContain("");
+    expect(result[0]?.routeId).toBe("6641");
   });
 
   it("names the floor it applies", () => {

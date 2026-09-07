@@ -233,6 +233,10 @@ export function BusMap({
     let pollTimer: number | undefined;
     let reconnectTimer: number | undefined;
     let reconnectDelay = 2000;
+    // The bunch-lines feature count from the last setData call, so animate()
+    // can tell "still nothing to draw" from "just went to nothing" and skip
+    // the redundant empty-to-empty update.
+    let prevBunchLineFeatureCount = 0;
 
     // Not "load". OpenFreeMap's style carries an ne2_shaded raster source that
     // never finishes loading, so isStyleLoaded() stays false forever and "load"
@@ -322,7 +326,10 @@ export function BusMap({
         paint: {
           "line-color": BUNCHED_COLOR,
           "line-width": ["interpolate", ["linear"], ["zoom"], 9, 1.5, 15, 3],
-          "line-opacity": 0.75,
+          // Same pair of values as the express ring's circle-stroke-opacity, so
+          // a bunch line fades exactly as much as the buses forming it do when
+          // a route is selected or the express filter is on.
+          "line-opacity": ["case", ["get", "dim"], 0.15, 0.75],
           "line-dasharray": [1, 1],
         },
       }, "bus-icons");
@@ -648,7 +655,16 @@ export function BusMap({
       // Computed once here, not per frame in animate(), and the one source of
       // truth animate() draws both the per-bus flag and the connecting lines
       // from, so the map and the status bar count below can never disagree.
-      bunchesRef.current = findBunches(field.positionsAt(Date.now()));
+      //
+      // glide=false, not the default: ingest() just reset startedAt for every
+      // bus in this snapshot, so a gliding read here would return wherever the
+      // bus was being *drawn* the instant before this snapshot landed, plus the
+      // bearing at the old fromDistance — up to a whole poll interval (400-600m)
+      // stale against BUNCH_METRES's 200m threshold. false snaps to the sample
+      // just ingested and the bearing at toDistance instead. animate()'s own
+      // gliding read is untouched, so the drawn lines still tween smoothly
+      // between polls; only detection itself must see the fresh sample.
+      bunchesRef.current = findBunches(field.positionsAt(Date.now(), false));
       const bunchedCount = new Set(bunchesRef.current.flatMap((b) => b.busIds)).size;
 
       onStateRef.current({
@@ -703,6 +719,24 @@ export function BusMap({
       // happens to pass a bunched one, so building the bunch lines afterward
       // never needs a second pass over the whole fleet.
       const bunchedPositions = new Map<string, RenderedBus>();
+
+      // Both loop-invariant across the ~900 buses below: every bus shares one
+      // zoom and the marker shape it implies, so getZoom() and markerShapeFor()
+      // only need calling once per frame, not once per bus. iconName then only
+      // depends on that fixed shape plus each bus's colour, and TransLink
+      // colours just 12 routes, so caching by colour turns up to 900 calls a
+      // frame into at most a dozen.
+      const shape = markerShapeFor(map.getZoom());
+      const iconByColor = new Map<string, string>();
+      const iconFor = (color: string): string => {
+        let name = iconByColor.get(color);
+        if (name === undefined) {
+          name = iconName(shape, color);
+          iconByColor.set(color, name);
+        }
+        return name;
+      };
+
       const features = positions.map((bus) => {
         const label = gtfs.routeLabel(bus.routeId);
         const color = gtfs.routeColor(bus.routeId);
@@ -720,7 +754,7 @@ export function BusMap({
             late: isLate(bus.delay),
             express,
             dim: shouldDim(highlightRef.current, bus.routeId, express),
-            icon: iconName(markerShapeFor(map.getZoom()), color),
+            icon: iconFor(color),
           },
         };
       });
@@ -756,6 +790,15 @@ export function BusMap({
               ),
           ];
 
+          // The same rule the per-bus icon uses, so a selected route or the
+          // express filter dims a bunch line exactly when it dims the buses
+          // that form it — one rule, not a second one that can drift from it.
+          const dim = shouldDim(
+            highlightRef.current,
+            bunch.routeId,
+            isExpress(gtfs.routeLabel(bunch.routeId)),
+          );
+
           return [
             {
               type: "Feature" as const,
@@ -763,12 +806,19 @@ export function BusMap({
                 type: "LineString" as const,
                 coordinates: ordered.map((p) => [p.lon, p.lat]),
               },
-              properties: {},
+              properties: { dim },
             },
           ];
         });
 
-        bunchLineSource.setData({ type: "FeatureCollection", features: lineFeatures });
+        // Skip the round trip when there is nothing to draw and nothing to
+        // clear either: bunches are rare, so most of the day this collection
+        // is empty on both sides and setData would just be 60 no-op worker
+        // round trips a second.
+        if (lineFeatures.length > 0 || prevBunchLineFeatureCount > 0) {
+          bunchLineSource.setData({ type: "FeatureCollection", features: lineFeatures });
+        }
+        prevBunchLineFeatureCount = lineFeatures.length;
       }
 
       // Follow the selected bus. setCenter, not easeTo: an eased camera has its

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   arrivalsErrorText,
-  BUNCH_METRES,
   BUS_ICON_MIN_ZOOM,
   BusField,
   countdown,
