@@ -56,7 +56,14 @@ const reduceMotionQuery =
 
 export type FeedState =
   | { kind: "connecting" }
-  | { kind: "live"; buses: number; late: number; bunched: number; feedTime: number | null }
+  | {
+      kind: "live";
+      buses: number;
+      late: number;
+      bunched: number;
+      feedTime: number | null;
+      nextRefreshAt: number | null;
+    }
   /** Static timetables work; the realtime feed does not. */
   | { kind: "schedules-only" }
   | { kind: "error"; message: string };
@@ -147,6 +154,13 @@ export function BusMap({
    * per poll. animate() just reads this ref.
    */
   const bunchesRef = useRef<Bunch[]>([]);
+  /**
+   * When the "next update in Ns" countdown next reaches zero, on this
+   * client's own clock. Set in apply() only when a snapshot actually folds
+   * in (not a redundant re-delivery — see BusField.ingest), so the countdown
+   * keeps counting down through that race instead of restarting.
+   */
+  const nextRefreshAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!container.current) return;
@@ -660,14 +674,20 @@ export function BusMap({
 
       diagnostics.snapshots++;
       diagnostics.buses = snapshot.vehicles.length;
-      field.ingest(snapshot);
+      const now = Date.now();
+      // Only a real fold-in moves the countdown: the connect-time race that
+      // redelivers one poll twice (see BusField.ingest) must not restart it
+      // a moment after it was already set from the first delivery.
+      if (field.ingest(snapshot, now)) {
+        nextRefreshAtRef.current = now + snapshot.pollSeconds * 1000;
+      }
 
       // Computed once here, not per frame in animate(), and the one source of
       // truth animate() draws both the per-bus flag and the connecting lines
       // from, so the map and the status bar count below can never disagree.
       // bunchesAt, not findBunches directly: it carries the glide=false rule
       // that detection depends on, in a module a test can reach.
-      bunchesRef.current = bunchesAt(field, Date.now());
+      bunchesRef.current = bunchesAt(field, now);
       const bunchedCount = new Set(bunchesRef.current.flatMap((b) => b.busIds)).size;
 
       onStateRef.current({
@@ -676,6 +696,7 @@ export function BusMap({
         late: snapshot.vehicles.filter((v) => isLate(v.l)).length,
         bunched: bunchedCount,
         feedTime: snapshot.feedTimestamp,
+        nextRefreshAt: nextRefreshAtRef.current,
       });
 
       // Forget the wire record of any bus BusField has given up on. A bus that

@@ -140,6 +140,22 @@ export function describeAge(feedTime: number | null, now = Date.now()): string {
 export const STALE_FEED_SECONDS = 300;
 
 /**
+ * "next update in Ns", or "updating…" once the moment has arrived.
+ *
+ * `nextRefreshAt` is set on this client's own clock alone (receipt time of
+ * the last real snapshot, plus the feed's poll cadence) — never a server
+ * timestamp, for the clock-skew reason BusField.ingest documents on `t`.
+ * Network and processing lag can still carry it a little past due before the
+ * next snapshot lands, so a non-positive remainder reads "updating…" rather
+ * than counting into negative seconds.
+ */
+export function nextRefreshText(nextRefreshAt: number, now = Date.now()): string {
+  const seconds = Math.round((nextRefreshAt - now) / 1000);
+  if (seconds <= 0) return "updating…";
+  return `next update in ${seconds}s`;
+}
+
+/**
  * True when the live feed is old enough that its positions are no longer
  * current. The status dot then reads amber instead of the green of a fresh
  * feed, so a rider is never told hours-old overnight positions are live beside
@@ -350,13 +366,18 @@ export class BusField {
     return this.buses.has(id);
   }
 
-  /** Fold a new snapshot in, re-basing every bus on the fix it just reported. */
-  ingest(snapshot: Snapshot, now = Date.now()): void {
+  /**
+   * Fold a new snapshot in, re-basing every bus on the fix it just reported.
+   * Returns false for a redundant re-delivery of a poll already ingested (see
+   * lastGeneratedAt) — callers that schedule off the poll cadence, such as the
+   * "next update in Ns" countdown, must skip those rather than restart it.
+   */
+  ingest(snapshot: Snapshot, now = Date.now()): boolean {
     // Same poll as last time: the eager REST pollOnce() and the WebSocket's
     // own "send current state on connect" both answer from this one cached
     // snapshot, so a fresh client typically gets it twice. Nothing has
     // actually moved, so there is nothing to fold in — see lastGeneratedAt.
-    if (this.lastGeneratedAt !== null && snapshot.generatedAt === this.lastGeneratedAt) return;
+    if (this.lastGeneratedAt !== null && snapshot.generatedAt === this.lastGeneratedAt) return false;
     this.lastGeneratedAt = snapshot.generatedAt;
 
     this.pollMs = Math.max(1000, snapshot.pollSeconds * 1000);
@@ -417,6 +438,7 @@ export class BusField {
     }
 
     this.dropStale(now);
+    return true;
   }
 
   /**

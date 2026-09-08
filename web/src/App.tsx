@@ -12,6 +12,7 @@ import {
   hintText,
   isFeedStale,
   isLate,
+  nextRefreshText,
   shouldClearFollow,
   type ArrivalsFailure,
   type WireVehicle,
@@ -383,6 +384,11 @@ function StatusPill({ feed }: { feed: FeedState }) {
         <span className={`dot ${stale ? "warn" : "live"}`} aria-hidden="true" />
         <strong>{feed.buses}</strong> buses
         <span className="age">{describeAge(feed.feedTime)}</span>
+        {/* Stale means the poller is asleep for the night (or down) — there is
+            no next tick coming, so counting toward one would be a lie. */}
+        {!stale && feed.nextRefreshAt !== null && (
+          <span className="next-refresh">{nextRefreshText(feed.nextRefreshAt)}</span>
+        )}
         {feed.late > 0 && (
           <span className="late-note">
             <span className="dot late" aria-hidden="true" />
