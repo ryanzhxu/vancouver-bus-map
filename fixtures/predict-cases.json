@@ -1,0 +1,228 @@
+{
+  "_comment": "Shared test fixture for src/predict.ts and web/src/predict.ts. Those two files are hand-duplicated because src/ and web/src/ are separate TypeScript projects that cannot import from each other (see CLAUDE.md's note on WireVehicle: 'nothing enforces' the two copies staying in sync). Nothing type-checks that predict.ts and its web copy compute the same thing -- this fixture is what enforces it: both src/predict.test.ts and web/src/predict.test.ts read this exact file and assert the exact same expected values, so the two copies drifting apart fails both test suites.",
+  "predictCases": [
+    {
+      "name": "a normally moving bus continues forward at its observed speed",
+      "input": {
+        "last": {
+          "d": 0.055,
+          "t": 1700000090000
+        },
+        "prev": {
+          "d": 0.05,
+          "t": 1700000000000
+        },
+        "now": 1700000120000,
+        "trackLength": 0.2
+      },
+      "expectedSpeed": 5.555555555555553e-08,
+      "expectedDistance": 0.056666666666666664
+    },
+    {
+      "name": "a bus with no previous fix holds its last position",
+      "input": {
+        "last": {
+          "d": 0.03,
+          "t": 1700000000000
+        },
+        "prev": null,
+        "now": 1700000090000,
+        "trackLength": 0.2
+      },
+      "expectedSpeed": null,
+      "expectedDistance": 0.03
+    },
+    {
+      "name": "a stationary bus at a layover holds position",
+      "input": {
+        "last": {
+          "d": 0.1,
+          "t": 1700000090000
+        },
+        "prev": {
+          "d": 0.1,
+          "t": 1700000000000
+        },
+        "now": 1700000150000,
+        "trackLength": 0.2
+      },
+      "expectedSpeed": 0,
+      "expectedDistance": 0.1
+    },
+    {
+      "name": "clamps at the end of the track when the prediction overshoots",
+      "input": {
+        "last": {
+          "d": 0.19,
+          "t": 1700000090000
+        },
+        "prev": {
+          "d": 0.18,
+          "t": 1700000000000
+        },
+        "now": 1700005090000,
+        "trackLength": 0.2
+      },
+      "expectedSpeed": 1.1111111111111121e-07,
+      "expectedDistance": 0.2
+    },
+    {
+      "name": "clamps at the start of the track when the bus is predicted to reverse past zero",
+      "input": {
+        "last": {
+          "d": 0.01,
+          "t": 1700000090000
+        },
+        "prev": {
+          "d": 0.02,
+          "t": 1700000000000
+        },
+        "now": 1700005090000,
+        "trackLength": 0.2
+      },
+      "expectedSpeed": -1.1111111111111111e-07,
+      "expectedDistance": 0
+    },
+    {
+      "name": "backwards travel between two fixes produces a negative speed",
+      "input": {
+        "last": {
+          "d": 0.075,
+          "t": 1700000090000
+        },
+        "prev": {
+          "d": 0.08,
+          "t": 1700000000000
+        },
+        "now": 1700000120000,
+        "trackLength": 0.2
+      },
+      "expectedSpeed": -5.555555555555561e-08,
+      "expectedDistance": 0.07333333333333333
+    },
+    {
+      "name": "an implausible speed is rejected and the bus holds position",
+      "input": {
+        "last": {
+          "d": 0.15,
+          "t": 1700000090000
+        },
+        "prev": {
+          "d": 0.01,
+          "t": 1700000000000
+        },
+        "now": 1700000120000,
+        "trackLength": 0.5
+      },
+      "expectedSpeed": null,
+      "expectedDistance": 0.15
+    },
+    {
+      "name": "zero time delta between fixes returns a null speed",
+      "input": {
+        "last": {
+          "d": 0.055,
+          "t": 1700000090000
+        },
+        "prev": {
+          "d": 0.05,
+          "t": 1700000090000
+        },
+        "now": 1700000120000,
+        "trackLength": 0.2
+      },
+      "expectedSpeed": null,
+      "expectedDistance": 0.055
+    },
+    {
+      "name": "a previous fix newer than the last one returns a null speed",
+      "input": {
+        "last": {
+          "d": 0.055,
+          "t": 1700000090000
+        },
+        "prev": {
+          "d": 0.05,
+          "t": 1700000100000
+        },
+        "now": 1700000120000,
+        "trackLength": 0.2
+      },
+      "expectedSpeed": null,
+      "expectedDistance": 0.055
+    },
+    {
+      "name": "clock skew: a now before the last fix holds position",
+      "input": {
+        "last": {
+          "d": 0.055,
+          "t": 1700000090000
+        },
+        "prev": {
+          "d": 0.05,
+          "t": 1700000000000
+        },
+        "now": 1700000080000,
+        "trackLength": 0.2
+      },
+      "expectedSpeed": 5.555555555555553e-08,
+      "expectedDistance": 0.055
+    }
+  ],
+  "confidenceCases": [
+    {
+      "name": "no age at all means full confidence",
+      "ageMs": 0,
+      "pollMs": 90000,
+      "expected": 1
+    },
+    {
+      "name": "a prediction from before the fix (negative age) is still full confidence",
+      "ageMs": -5000,
+      "pollMs": 90000,
+      "expected": 1
+    },
+    {
+      "name": "fades linearly toward 0.6 at the midpoint of one poll interval",
+      "ageMs": 45000,
+      "pollMs": 90000,
+      "expected": 0.8
+    },
+    {
+      "name": "reaches 0.6 at exactly one poll interval old",
+      "ageMs": 90000,
+      "pollMs": 90000,
+      "expected": 0.6
+    },
+    {
+      "name": "fades linearly toward 0.35 at the midpoint of the second poll interval",
+      "ageMs": 135000,
+      "pollMs": 90000,
+      "expected": 0.475
+    },
+    {
+      "name": "reaches 0.35 at exactly two poll intervals old",
+      "ageMs": 180000,
+      "pollMs": 90000,
+      "expected": 0.35
+    },
+    {
+      "name": "stays at the 0.35 floor well beyond two poll intervals",
+      "ageMs": 500000,
+      "pollMs": 90000,
+      "expected": 0.35
+    },
+    {
+      "name": "a zero poll interval guards to full confidence",
+      "ageMs": 1000,
+      "pollMs": 0,
+      "expected": 1
+    },
+    {
+      "name": "a negative poll interval guards to full confidence",
+      "ageMs": 1000,
+      "pollMs": -50,
+      "expected": 1
+    }
+  ]
+}

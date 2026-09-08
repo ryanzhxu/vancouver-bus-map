@@ -440,8 +440,10 @@ function AboutSheet({ onClose }: { onClose: () => void }) {
         <div className="sheet-grip" aria-hidden="true" />
         <h2>Vancouver Bus Map</h2>
         <p>
-          Every bus in Metro Vancouver, updated every 90 seconds. Between updates each
-          bus glides along its real route, so the map moves the way traffic does.
+          Every bus in Metro Vancouver, updated every 30 seconds. Between updates each
+          bus is projected forward along its real route at its own measured speed, so
+          the map shows where a bus most likely is now. A marker fades as its position
+          ages, and sharpens the moment the feed confirms it again.
         </p>
         <p className="note">
           Buses only. TransLink publishes no live positions for SkyTrain, SeaBus, or the

@@ -5,34 +5,48 @@ running entirely on Cloudflare.
 
 **Live:** https://vanbus.ryanxu.dev
 
-Buses glide along their real route geometry between updates, rather than
-teleporting every 90 seconds. Tap a bus for its destination and next stop; tap a
-stop for the next departures, with live predictions layered over the timetable
-and clearly marked as one or the other.
+Buses move along their real route geometry between updates, rather than
+teleporting every poll. Each one is projected forward at its own measured speed,
+so a marker shows where a bus most likely is now rather than where it was last
+confirmed — and it fades as that position ages, sharpening again the moment the
+feed confirms it. Tap a bus for its destination and next stop; tap a stop for the
+next departures, with live predictions layered over the timetable and clearly
+marked as one or the other.
 
 ## Why it is shaped this way
 
 TransLink's Open API allows **1,000 requests per day per key, across all feeds**.
-That single number decides the architecture:
+Three keys are configured, so the ceiling is 3,000. That single number decides
+the architecture:
 
 - No client ever calls TransLink. One Durable Object owns every request.
-- Cron Triggers floor at one minute and cannot express a 90-second cadence, so
+- Cron Triggers floor at one minute and cannot express a 30-second cadence, so
   the poller is a Durable Object **alarm**, which takes a millisecond timestamp.
 - Polling runs 07:00–23:00 Pacific only. Outside that window the alarm sleeps
   until morning.
 
-At 90 seconds over a 16-hour day:
+At 30 seconds over a 16-hour day:
 
-| feed              | cadence    | requests |
-| ----------------- | ---------- | -------- |
-| vehicle positions | every tick | 640      |
-| trip updates      | every 2nd  | 320      |
-| service alerts    | every 40th | 16       |
-| **total**         |            | **976**  |
+| feed              | cadence     | requests  |
+| ----------------- | ----------- | --------- |
+| vehicle positions | every tick  | 1,920     |
+| trip updates      | every 2nd   | 960       |
+| service alerts    | every 120th | 16        |
+| **total**         |             | **2,896** |
 
-The remaining 24 requests are deliberate headroom — a failed request still
+The remaining 104 requests are deliberate headroom — a failed request still
 counts against the cap. `src/config.test.ts` fails the build if a change pushes
 the total over the limit.
+
+Alerts moved from every 40th tick to every 120th when the tick tripled in rate.
+That holds them at hourly: an elevator outage does not change three times faster
+because we look three times more often, and it returned 32 requests to headroom.
+
+Spend is tracked **per key**, not pooled, because the cap is per key — an uneven
+split could drain one to 1,000 while the others idled. Each request goes to the
+least-spent key with budget left. If a key is revoked, `pollSecondsFor()` widens
+the interval in proportion rather than overspending the survivors, so the map
+gets slower instead of illegal.
 
 ## What the feeds actually contain
 

@@ -5,7 +5,14 @@ export interface Env {
   SNAPSHOT: KVNamespace;
   GTFS: R2Bucket;
   ASSETS: Fetcher;
-  /** Set with: wrangler secret put TRANSLINK_API_KEY */
+  /**
+   * Comma-separated keys. Set with: wrangler secret put TRANSLINK_API_KEYS
+   *
+   * The cap is per key, so the count sets the poll rate — see pollSecondsFor
+   * in config.ts. Adding a fourth key is a secret update, not a deploy.
+   */
+  TRANSLINK_API_KEYS?: string;
+  /** The original single-key secret, kept so a rollback still has a key. */
   TRANSLINK_API_KEY?: string;
 }
 

@@ -143,8 +143,8 @@ export function BusMap({
    * Recomputed once per snapshot in apply(), not once per frame in animate():
    * findBunches groups by route then compares pairwise within each group, and
    * the busiest routes carry 40+ buses at peak, so running it at 60fps would be
-   * thousands of distance checks a second for a number that only changes every
-   * 90-second poll. animate() just reads this ref.
+   * thousands of distance checks a second for a number that only changes once
+   * per poll. animate() just reads this ref.
    */
   const bunchesRef = useRef<Bunch[]>([]);
 
@@ -269,7 +269,17 @@ export function BusMap({
           "symbol-sort-key": ["case", ["get", "express"], 1, 0],
         },
         paint: {
-          "icon-opacity": ["case", ["get", "dim"], 0.2, 0.95],
+          // Confidence fades a marker as its position ages past the fix that
+          // grounded it, so a bus the feed has not confirmed lately reads as
+          // less certain rather than as fact. A dimmed bus (route highlight
+          // active, this one not in it) stays dimmed regardless — that is a
+          // filter, and it must not be confused with a freshness signal.
+          "icon-opacity": [
+            "case",
+            ["get", "dim"],
+            0.2,
+            ["*", 0.95, ["get", "confidence"]],
+          ],
         },
       });
 
@@ -607,7 +617,7 @@ export function BusMap({
       socket.addEventListener("error", () => socket?.close());
 
       // The socket only pushes on a poll tick, so pull once immediately to
-      // avoid an empty map for up to 90 seconds after load.
+      // avoid an empty map for up to a whole poll interval after load.
       void pollOnce();
       // A dropped socket runs connect() again to reconnect. Clear the previous
       // interval first, or every reconnect would leave another 60s poll running
@@ -747,6 +757,7 @@ export function BusMap({
             late: isLate(bus.delay),
             express,
             dim: shouldDim(highlightRef.current, bus.routeId, express),
+            confidence: bus.confidence,
             icon: iconFor(color),
           },
         };

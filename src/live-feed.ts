@@ -1,11 +1,13 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   ALERTS_EVERY,
+  DAILY_LIMIT_PER_KEY,
   FEEDS,
-  POLL_SECONDS,
   TRIP_UPDATE_EVERY,
   inServiceWindow,
   msUntilServiceStart,
+  parseApiKeys,
+  pollSecondsFor,
   vancouverHour,
 } from "./config.js";
 import {
@@ -114,11 +116,11 @@ export class LiveFeed extends DurableObject<Env> {
   /* ---------------------------------------------------------------- */
 
   private async poll(): Promise<void> {
-    const apiKey = this.env.TRANSLINK_API_KEY;
-    if (!apiKey) {
+    const keys = this.apiKeys();
+    if (keys.length === 0) {
       await this.ctx.storage.put("lastError", {
         at: Date.now(),
-        message: "TRANSLINK_API_KEY secret is not set",
+        message: "neither TRANSLINK_API_KEYS nor TRANSLINK_API_KEY is set",
       });
       return;
     }
@@ -126,7 +128,7 @@ export class LiveFeed extends DurableObject<Env> {
     const tick = ((await this.ctx.storage.get<number>("tick")) ?? 0) + 1;
     await this.ctx.storage.put("tick", tick);
 
-    const vehicles = await this.fetchFeed(FEEDS.positions, apiKey, decodeVehicles);
+    const vehicles = await this.fetchFeed(FEEDS.positions, keys, decodeVehicles);
     if (vehicles) {
       // Kept only so a client connecting before the next tick can seed a
       // glide from a real prior fix — see previousPositions().
@@ -136,20 +138,18 @@ export class LiveFeed extends DurableObject<Env> {
     }
 
     if (tick % TRIP_UPDATE_EVERY === 0) {
-      const updates = await this.fetchFeed(FEEDS.tripUpdates, apiKey, decodeTripUpdates);
+      const updates = await this.fetchFeed(FEEDS.tripUpdates, keys, decodeTripUpdates);
       if (updates) {
         await this.ctx.storage.put("predictions", indexPredictionsByStop(updates));
       }
     }
 
     if (tick % ALERTS_EVERY === 1) {
-      const alerts = await this.fetchFeed(FEEDS.alerts, apiKey, decodeAlerts);
+      const alerts = await this.fetchFeed(FEEDS.alerts, keys, decodeAlerts);
       if (alerts) {
         await this.ctx.storage.put("alerts", alerts);
       }
     }
-
-    await this.ctx.storage.put("requestsToday", await this.bumpRequestCount());
 
     const snapshot = await this.buildSnapshot();
     this.snapshot = snapshot;
@@ -163,22 +163,99 @@ export class LiveFeed extends DurableObject<Env> {
 
   private async fetchFeed<T>(
     url: string,
-    apiKey: string,
+    keys: string[],
     decode: (buf: Uint8Array) => T,
   ): Promise<T | null> {
-    const response = await fetch(`${url}?apikey=${apiKey}`, {
+    const key = await this.spendKey(keys);
+
+    const response = await fetch(`${url}?apikey=${key}`, {
       cf: { cacheTtl: 0 },
       headers: { "user-agent": "vancouver-bus-map (+https://github.com/ryanzhxu)" },
     });
 
     if (!response.ok) {
+      // The key never appears here. A 401 from a revoked key would otherwise
+      // put a live credential into stored error text and /api/live/status.
       throw new Error(`${url} returned ${response.status}`);
     }
 
     const buf = new Uint8Array(await response.arrayBuffer());
     const header = decodeHeader(buf);
     await this.ctx.storage.put("feedTimestamp", header.timestamp ?? null);
+
+    if (url === FEEDS.positions) {
+      await this.recordFeedRefresh(header.timestamp ?? null);
+    }
+
     return decode(buf);
+  }
+
+  /** Keys currently configured, newest secret format first. */
+  private apiKeys(): string[] {
+    return parseApiKeys(this.env.TRANSLINK_API_KEYS, this.env.TRANSLINK_API_KEY);
+  }
+
+  /**
+   * Charge one request to the least-spent key that still has budget.
+   *
+   * Least-spent rather than round-robin because retries do not distribute
+   * evenly: a feed that fails and is retried would walk the rotation forward,
+   * and over a day the drift is enough to exhaust one key while another sits
+   * unused. The counter increments before the request goes out, since a failed
+   * request still counts against TransLink's cap.
+   */
+  private async spendKey(keys: string[]): Promise<string> {
+    const today = this.vancouverDate();
+    const stored = await this.ctx.storage.get<KeyLedger>("keyLedger");
+
+    // A changed key count invalidates the positional counts entirely — index 1
+    // is a different key than it was yesterday — so the ledger starts over.
+    const counts =
+      stored && stored.date === today && stored.counts.length === keys.length
+        ? [...stored.counts]
+        : new Array<number>(keys.length).fill(0);
+
+    let chosen = -1;
+    for (let i = 0; i < counts.length; i++) {
+      if (counts[i]! >= DAILY_LIMIT_PER_KEY) continue;
+      if (chosen === -1 || counts[i]! < counts[chosen]!) chosen = i;
+    }
+
+    if (chosen === -1) {
+      throw new Error(`all ${keys.length} keys have spent their daily cap`);
+    }
+
+    counts[chosen] = counts[chosen]! + 1;
+    await this.ctx.storage.put("keyLedger", { date: today, counts });
+    return keys[chosen]!;
+  }
+
+  /**
+   * Count how often a poll returns a feed we have already seen.
+   *
+   * TransLink does not publish how often the positions feed is regenerated,
+   * and polling faster than it refreshes spends quota on identical bytes. A
+   * duplicate rate near zero means 30s is inside the feed's own cadence; a
+   * rate near half would mean the feed moves at 60s and the third key is
+   * buying nothing. This measures that for free, out of polls already made.
+   */
+  private async recordFeedRefresh(timestamp: number | null): Promise<void> {
+    const today = this.vancouverDate();
+    const stored = await this.ctx.storage.get<FeedRefresh>("feedRefresh");
+    const fresh = stored && stored.date === today ? stored : { date: today, samples: 0, duplicates: 0, last: null };
+
+    const duplicate = timestamp !== null && timestamp === fresh.last;
+    await this.ctx.storage.put("feedRefresh", {
+      date: today,
+      samples: fresh.samples + 1,
+      duplicates: fresh.duplicates + (duplicate ? 1 : 0),
+      last: timestamp,
+    });
+  }
+
+  /** Calendar date in Vancouver, the boundary every daily counter resets on. */
+  private vancouverDate(): string {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Vancouver" }).format(new Date());
   }
 
   private async buildSnapshot(): Promise<Snapshot> {
@@ -192,7 +269,10 @@ export class LiveFeed extends DurableObject<Env> {
       type: "snapshot",
       generatedAt: Date.now(),
       feedTimestamp,
-      pollSeconds: POLL_SECONDS,
+      // The client sizes its extrapolation horizon from this, so it has to be
+      // the rate we are really polling at, not the rate config aims for. They
+      // differ whenever a key is missing.
+      pollSeconds: pollSecondsFor(this.apiKeys().length),
       vehicles: vehicles.map((v) => toWire(v, trips, predictions)),
     };
   }
@@ -251,22 +331,6 @@ export class LiveFeed extends DurableObject<Env> {
     }
   }
 
-  /** Rough daily counter, reset on Vancouver-local date change. */
-  private async bumpRequestCount(): Promise<number> {
-    const today = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "America/Vancouver",
-    }).format(new Date());
-
-    const stored = await this.ctx.storage.get<{ date: string; count: number }>("requests");
-    const next =
-      stored && stored.date === today
-        ? { date: today, count: stored.count + 1 }
-        : { date: today, count: 1 };
-
-    await this.ctx.storage.put("requests", next);
-    return next.count;
-  }
-
   private async ensureAlarm(): Promise<void> {
     if ((await this.ctx.storage.getAlarm()) === null) {
       await this.scheduleNext();
@@ -277,35 +341,63 @@ export class LiveFeed extends DurableObject<Env> {
   private async scheduleNext(): Promise<void> {
     const now = new Date();
     const delayMs = inServiceWindow(now)
-      ? POLL_SECONDS * 1000
+      ? pollSecondsFor(this.apiKeys().length) * 1000
       : msUntilServiceStart(now);
     await this.ctx.storage.setAlarm(Date.now() + delayMs);
   }
 
   private async status() {
-    const [tick, requests, lastError, feedTimestamp, vehicles] = await Promise.all([
+    const [tick, ledger, refresh, lastError, feedTimestamp, vehicles] = await Promise.all([
       this.ctx.storage.get<number>("tick"),
-      this.ctx.storage.get<{ date: string; count: number }>("requests"),
+      this.ctx.storage.get<KeyLedger>("keyLedger"),
+      this.ctx.storage.get<FeedRefresh>("feedRefresh"),
       this.ctx.storage.get<{ at: number; message: string }>("lastError"),
       this.ctx.storage.get<number | null>("feedTimestamp"),
       this.ctx.storage.get<Vehicle[]>("vehicles"),
     ]);
 
+    const counts = ledger?.counts ?? [];
+    const keyCount = this.apiKeys().length;
+
     return {
       tick: tick ?? 0,
-      requestsToday: requests?.count ?? 0,
-      requestDate: requests?.date ?? null,
+      requestsToday: counts.reduce((sum, n) => sum + n, 0),
+      // Per key, not just the total: the cap is per key, so one exhausted key
+      // among three is the failure that a pooled number would hide.
+      requestsByKey: counts,
+      requestDate: ledger?.date ?? null,
+      keys: keyCount,
+      pollSeconds: pollSecondsFor(keyCount),
       vehicles: vehicles?.length ?? 0,
       // Coerce undefined to null so the key survives JSON.stringify.
       feedTimestamp: feedTimestamp ?? null,
+      // Non-zero means we are polling faster than TransLink regenerates the
+      // feed, and the surplus keys are buying identical bytes.
+      feedRefresh: refresh
+        ? { samples: refresh.samples, duplicates: refresh.duplicates, date: refresh.date }
+        : null,
       inServiceWindow: inServiceWindow(new Date()),
       vancouverHour: vancouverHour(new Date()),
       openSockets: this.ctx.getWebSockets().length,
-      hasApiKey: Boolean(this.env.TRANSLINK_API_KEY),
+      hasApiKey: keyCount > 0,
       lastError: lastError ?? null,
       nextAlarm: await this.ctx.storage.getAlarm(),
     };
   }
+}
+
+/** Requests charged to each key today, positional against the parsed key list. */
+interface KeyLedger {
+  date: string;
+  counts: number[];
+}
+
+/** How many position polls returned a feed timestamp we had already seen. */
+interface FeedRefresh {
+  date: string;
+  samples: number;
+  duplicates: number;
+  last: number | null;
 }
 
 /* ------------------------------------------------------------------ */
