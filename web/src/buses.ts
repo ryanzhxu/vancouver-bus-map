@@ -142,12 +142,18 @@ export const STALE_FEED_SECONDS = 300;
 /**
  * "next update in Ns", or "updating…" once the moment has arrived.
  *
- * `nextRefreshAt` is set on this client's own clock alone (receipt time of
- * the last real snapshot, plus the feed's poll cadence) — never a server
- * timestamp, for the clock-skew reason BusField.ingest documents on `t`.
- * Network and processing lag can still carry it a little past due before the
- * next snapshot lands, so a non-positive remainder reads "updating…" rather
- * than counting into negative seconds.
+ * `nextRefreshAt` is the snapshot's own `generatedAt` plus the feed's poll
+ * cadence — the server's clock, not this client's. A fresh connect is
+ * usually answered from the Durable Object's cached last tick (see
+ * BusField.ingest's `seed` branch), generated anywhere up to one poll
+ * interval ago; timing the countdown from THIS client's receipt of that
+ * stale snapshot would show a full cadence's worth of "next update" every
+ * single page load, whether or not a tick is actually imminent. describeAge
+ * already mixes a server epoch into a client `now` the same way for the
+ * same reason — display text tolerates the clock-skew risk BusField.ingest's
+ * position math cannot. Network and processing lag can still carry this a
+ * little past due before the next snapshot lands, so a non-positive
+ * remainder reads "updating…" rather than counting into negative seconds.
  */
 export function nextRefreshText(nextRefreshAt: number, now = Date.now()): string {
   const seconds = Math.round((nextRefreshAt - now) / 1000);
@@ -299,19 +305,37 @@ interface BusState {
 }
 
 /**
- * How long a bus takes to absorb the error in its last prediction.
+ * The minimum time a bus takes to absorb the error in its last prediction.
  *
  * Extrapolation is a guess, so every fix arrives disagreeing with the marker
  * on screen by some tens of metres. Snapping to the truth would make 900
  * markers twitch in unison on every poll, which reads as a broken map even
  * though each individual correction is small and correct.
  *
- * Instead the error is carried forward and bled off over 1.5 seconds. Short
- * enough that the marker is honest again long before the next fix, and far
- * shorter than the poll interval, so this adds no systematic lag the way the
- * old poll-length tween did — that was the whole defect being fixed here.
+ * Instead the error is carried forward and bled off over at least 1.5
+ * seconds — short enough that the marker is honest again long before the
+ * next fix, and far shorter than the poll interval, so this adds no
+ * systematic lag the way the old poll-length tween did. distanceAt stretches
+ * this floor for a correction too large to absorb at a plausible bus speed —
+ * see MAX_CORRECTION_DEGREES_PER_MS.
  */
 const CORRECTION_MS = 1500;
+
+/**
+ * The fastest a correction is ever allowed to visually travel.
+ *
+ * A seeded bus (BusField.ingest's `seed` branch) stamps its fix with the
+ * client's connect time, not the true time the fix was taken — a client
+ * connecting mid-cycle can be seeded from data already stale by up to one
+ * poll interval. The glide quietly falls behind during that stretch, so the
+ * next real fix can disagree with the drawn position by far more than the
+ * "tens of metres" CORRECTION_MS was sized for. Bleeding a correction that
+ * large off in a fixed 1.5s reads as the bus teleporting. Capping the rate
+ * instead of the duration — at the same ceiling `observedSpeed` uses to
+ * reject an impossible fix — makes a big correction take proportionally
+ * longer, but never look like it is moving faster than a bus can.
+ */
+const MAX_CORRECTION_DEGREES_PER_MS = MAX_SPEED_DEGREES_PER_MS;
 
 /** Drop a bus that has not appeared in this many milliseconds. */
 const STALE_MS = 6 * 60_000;
@@ -489,10 +513,18 @@ export class BusField {
       trackLength: bus.track.length,
     });
 
-    const age = now - bus.correctedAt;
-    if (bus.correction === 0 || age >= CORRECTION_MS) return base;
+    if (bus.correction === 0) return base;
 
-    const remaining = 1 - Math.max(0, age) / CORRECTION_MS;
+    // A correction bigger than CORRECTION_MS can bleed off at the capped
+    // rate gets a longer window instead — see MAX_CORRECTION_DEGREES_PER_MS.
+    const duration = Math.max(
+      CORRECTION_MS,
+      Math.abs(bus.correction) / MAX_CORRECTION_DEGREES_PER_MS,
+    );
+    const age = now - bus.correctedAt;
+    if (age >= duration) return base;
+
+    const remaining = 1 - Math.max(0, age) / duration;
     const corrected = base + bus.correction * remaining;
     return Math.max(0, Math.min(bus.track.length, corrected));
   }

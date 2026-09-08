@@ -155,10 +155,11 @@ export function BusMap({
    */
   const bunchesRef = useRef<Bunch[]>([]);
   /**
-   * When the "next update in Ns" countdown next reaches zero, on this
-   * client's own clock. Set in apply() only when a snapshot actually folds
-   * in (not a redundant re-delivery — see BusField.ingest), so the countdown
-   * keeps counting down through that race instead of restarting.
+   * When the "next update in Ns" countdown next reaches zero — the snapshot's
+   * own generatedAt plus its poll cadence, see nextRefreshText. Set in
+   * apply() only when a snapshot actually folds in (not a redundant
+   * re-delivery — see BusField.ingest), so the countdown keeps counting down
+   * through that race instead of restarting.
    */
   const nextRefreshAtRef = useRef<number | null>(null);
 
@@ -677,9 +678,12 @@ export function BusMap({
       const now = Date.now();
       // Only a real fold-in moves the countdown: the connect-time race that
       // redelivers one poll twice (see BusField.ingest) must not restart it
-      // a moment after it was already set from the first delivery.
+      // a moment after it was already set from the first delivery. Timed
+      // from the snapshot's own generatedAt, not this receipt — see
+      // nextRefreshText for why a fresh connect must not read as a fresh
+      // 30s just because THIS client only just fetched the cached tick.
       if (field.ingest(snapshot, now)) {
-        nextRefreshAtRef.current = now + snapshot.pollSeconds * 1000;
+        nextRefreshAtRef.current = snapshot.generatedAt + snapshot.pollSeconds * 1000;
       }
 
       // Computed once here, not per frame in animate(), and the one source of

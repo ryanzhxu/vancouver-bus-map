@@ -126,6 +126,47 @@ describe("BusField", () => {
     expect(later.moving).toBe(true);
   });
 
+  it("does not sprint when a seeded bus's first real fix lands mid-glide", () => {
+    // A real client almost never connects exactly on a server tick boundary.
+    // Say the true ticks landed at t=0 and t=30_000 (a real 30s poll), but
+    // this client only connects — and gets seeded — at t=50_000, 20s after
+    // the second tick. BusField.ingest has no way to know that 20s of the
+    // "last" fix's staleness; it stamps the seed's last.t as the CONNECT
+    // time, not the tick's true time. That understates elapsed time on every
+    // glide frame until the next real fix, so the bus quietly falls behind
+    // where it truly is.
+    const field = new BusField(alwaysTrack(northLine));
+    const seeded = snapshot([vehicle({ y: 49.28375 })], 30, { bus1: [49.28, -123.12] }, 1);
+    field.ingest(seeded, 50_000);
+
+    // The next real tick, 30s after the TRUE previous one (t=60_000), lands
+    // with the bus's true, further-advanced position.
+    const real = snapshot([vehicle({ y: 49.2875 })], 30, undefined, 2);
+    field.ingest(real, 60_000);
+
+    // The 20s of understated staleness comes due all at once: the bus was
+    // drawn well behind its true position, and correction eases that gap in
+    // over a fixed 1.5s (CORRECTION_MS) meant for "some tens of metres" of
+    // ordinary prediction noise — not a fifth of a poll interval's worth of
+    // real travel. Sample the correction window finely and check no instant
+    // implies a speed beyond what a real bus reaches.
+    const KM_PER_DEGREE = 111;
+    // The fix caps the correction's rate at exactly this ceiling, so the
+    // worst sampled instant lands right on it modulo float rounding and the
+    // 50ms sampling step — 1% of headroom absorbs both without hiding a
+    // regression back toward the 666 km/h this test caught pre-fix.
+    const MAX_PLAUSIBLE_KMH = 130 * 1.01;
+    let worstKmh = 0;
+    for (let dtMs = 0; dtMs < 1600; dtMs += 50) {
+      const a = field.positionsAt(60_000 + dtMs)[0]!;
+      const b = field.positionsAt(60_000 + dtMs + 50)[0]!;
+      const distKm = Math.hypot(b.lat - a.lat, b.lon - a.lon) * KM_PER_DEGREE;
+      const kmh = distKm / (50 / 3_600_000);
+      worstKmh = Math.max(worstKmh, kmh);
+    }
+    expect(worstKmh).toBeLessThan(MAX_PLAUSIBLE_KMH);
+  });
+
   it("still freezes a bus absent from the seed map, even when other buses have one", () => {
     const field = new BusField(noTracks);
     const seeded: Snapshot = {
