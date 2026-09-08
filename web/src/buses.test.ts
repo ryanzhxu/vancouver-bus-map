@@ -48,13 +48,20 @@ const vehicle = (over: Partial<WireVehicle> = {}): WireVehicle => ({
   ...over,
 });
 
+// Each call defaults to a distinct generatedAt, as two real polls always have
+// — BusField uses it to spot a redundant delivery of a poll already ingested
+// (see BusField.lastGeneratedAt). Tests that need to simulate that redundant
+// delivery pass the same generatedAt explicitly instead.
+let nextGeneratedAt = 1;
+
 const snapshot = (
   vehicles: WireVehicle[],
   pollSeconds = 90,
   previous?: Record<string, [number, number]>,
+  generatedAt = nextGeneratedAt++,
 ): Snapshot => ({
   type: "snapshot",
-  generatedAt: 0,
+  generatedAt,
   feedTimestamp: null,
   pollSeconds,
   vehicles,
@@ -94,6 +101,27 @@ describe("BusField", () => {
 
     // Half a poll later it has advanced half a poll's worth beyond that fix.
     const later = field.positionsAt(45_000 + 45_000)[0]!;
+    expect(later.lat).toBeCloseTo(49.31, 4);
+    expect(later.moving).toBe(true);
+  });
+
+  it("keeps gliding through a redundant re-delivery of the same poll", () => {
+    // BusMap.connect() opens the WebSocket and fires an eager REST poll in
+    // the same breath, and the DO answers both from its one cached snapshot
+    // when no real tick lands in between — so this exact sequence (a seeded
+    // ingest immediately followed by a same-poll re-delivery a moment later)
+    // is what a fresh page load actually produces.
+    const field = new BusField(noTracks);
+    const seeded = snapshot([vehicle({ y: 49.3 })], 90, { bus1: [49.28, -123.12] }, 1);
+    field.ingest(seeded, 1000);
+
+    const redelivered = snapshot([vehicle({ y: 49.3 })], 90, undefined, 1);
+    field.ingest(redelivered, 1300);
+
+    // The seeded velocity must survive the redundant delivery: half a poll
+    // after the ORIGINAL fix, the bus is still exactly where the first ingest
+    // said it would be — not frozen at 49.3 by a bogus zero-velocity rebase.
+    const later = field.positionsAt(1000 + 45_000)[0]!;
     expect(later.lat).toBeCloseTo(49.31, 4);
     expect(later.moving).toBe(true);
   });

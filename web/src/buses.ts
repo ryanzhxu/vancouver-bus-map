@@ -314,6 +314,21 @@ export class BusField {
   private tracks: (tripId: string, routeId: string) => Track | null;
   /** Poll cadence from the most recent snapshot, for confidence decay. */
   private pollMs = 30_000;
+  /**
+   * generatedAt of the last snapshot actually folded in, to spot a redundant
+   * delivery of a poll already ingested.
+   *
+   * BusMap.connect() opens the WebSocket and fires an immediate REST poll in
+   * the same breath, and the DO answers both from the same cached snapshot
+   * when no real tick landed in between — so a client's very first bus is
+   * typically ingested twice within milliseconds of each other. Without this
+   * guard the second call sees the first call's fix as "existing" and rebases
+   * prev/last on it with almost no elapsed time, computing a near-zero
+   * velocity that permanently overwrites the real one the first call just
+   * established — every bus glides once, then freezes until the next actual
+   * poll (which, outside the service window, never comes).
+   */
+  private lastGeneratedAt: number | null = null;
 
   constructor(trackLookup: (tripId: string, routeId: string) => Track | null) {
     this.tracks = trackLookup;
@@ -337,6 +352,13 @@ export class BusField {
 
   /** Fold a new snapshot in, re-basing every bus on the fix it just reported. */
   ingest(snapshot: Snapshot, now = Date.now()): void {
+    // Same poll as last time: the eager REST pollOnce() and the WebSocket's
+    // own "send current state on connect" both answer from this one cached
+    // snapshot, so a fresh client typically gets it twice. Nothing has
+    // actually moved, so there is nothing to fold in — see lastGeneratedAt.
+    if (this.lastGeneratedAt !== null && snapshot.generatedAt === this.lastGeneratedAt) return;
+    this.lastGeneratedAt = snapshot.generatedAt;
+
     this.pollMs = Math.max(1000, snapshot.pollSeconds * 1000);
     // Every vehicle in a snapshot was sampled together, so they share one
     // timestamp — and that timestamp is when THIS client received it, not
