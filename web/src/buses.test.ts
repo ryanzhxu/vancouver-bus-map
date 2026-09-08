@@ -85,13 +85,17 @@ describe("BusField", () => {
       previous: { bus1: [49.28, -123.12] },
     };
 
-    // now=45_000: this client connected halfway through the glide segment
-    // that an already-open tab started tracking back when generatedAt was 0.
     field.ingest(seeded, 45_000);
 
-    const [bus] = field.positionsAt(45_000);
-    expect(bus!.lat).toBeCloseTo(49.29, 4);
-    expect(bus!.moving).toBe(true);
+    // The seed supplies the second fix a speed estimate needs, so the bus is
+    // projected forward from the moment it arrives rather than sitting on its
+    // reported position until the next poll.
+    expect(field.positionsAt(45_000)[0]!.lat).toBeCloseTo(49.3, 4);
+
+    // Half a poll later it has advanced half a poll's worth beyond that fix.
+    const later = field.positionsAt(45_000 + 45_000)[0]!;
+    expect(later.lat).toBeCloseTo(49.31, 4);
+    expect(later.moving).toBe(true);
   });
 
   it("still freezes a bus absent from the seed map, even when other buses have one", () => {
@@ -120,13 +124,14 @@ describe("BusField", () => {
   });
 
   describe("without geometry", () => {
-    it("glides in a straight line between samples", () => {
+    it("continues past the newest fix along the same straight line", () => {
       const field = new BusField(noTracks);
       field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
-      field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
+      field.ingest(snapshot([vehicle({ y: 49.3 })]), 90_000);
 
-      const halfway = field.positionsAt(1000 + 45_000)[0]!;
-      expect(halfway.lat).toBeCloseTo(49.29, 4);
+      // Half a poll past the fix, so half the last leg again beyond it.
+      const ahead = field.positionsAt(90_000 + 45_000)[0]!;
+      expect(ahead.lat).toBeCloseTo(49.31, 4);
     });
 
     it("arrives exactly at the target by the end of the interval", () => {
@@ -137,19 +142,16 @@ describe("BusField", () => {
       expect(field.positionsAt(1000 + 90_000)[0]!.lat).toBeCloseTo(49.3, 6);
     });
 
-    it("snaps to the latest sample instead of gliding when motion is reduced", () => {
+    it("holds the reported sample instead of projecting when motion is reduced", () => {
       const field = new BusField(noTracks);
       field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
-      field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
+      field.ingest(snapshot([vehicle({ y: 49.3 })]), 90_000);
 
-      // Halfway through the interval the default glide is mid-tween, but a
-      // reduced-motion caller sees the bus already at its reported position,
-      // so nothing slides between polls.
-      const mid = 1000 + 45_000;
-      expect(field.positionsAt(mid, true)[0]!.lat).toBeCloseTo(49.29, 4);
-
-      const snapped = field.positionsAt(mid, false)[0]!;
-      expect(snapped.lat).toBeCloseTo(49.3, 6);
+      // Mid-interval the default read has moved on past the fix, while a
+      // reduced-motion caller stays on the fix itself, so nothing slides.
+      const mid = 90_000 + 45_000;
+      expect(field.positionsAt(mid, true)[0]!.lat).toBeCloseTo(49.31, 4);
+      expect(field.positionsAt(mid, false)[0]!.lat).toBeCloseTo(49.3, 6);
     });
 
     it("stops at the target rather than overshooting when a snapshot is late", () => {
@@ -216,9 +218,9 @@ describe("BusField", () => {
     it("faces backwards when the bus runs against the shape direction", () => {
       const field = new BusField(alwaysTrack(northLine));
       field.ingest(snapshot([vehicle({ y: 49.3 })]), 0);
-      field.ingest(snapshot([vehicle({ y: 49.28 })]), 1000);
+      field.ingest(snapshot([vehicle({ y: 49.28 })]), 90_000);
 
-      expect(field.positionsAt(1000 + 45_000)[0]!.bearing).toBeCloseTo(180, 0);
+      expect(field.positionsAt(90_000 + 45_000)[0]!.bearing).toBeCloseTo(180, 0);
     });
 
     it("falls back to a straight line when projection implies an impossible jump", () => {
@@ -558,6 +560,9 @@ const rendered = (over: Partial<RenderedBus> = {}): RenderedBus => ({
   lon: -123.12,
   bearing: 0,
   moving: true,
+  // Fully measured unless a case says otherwise: bunching is detected from
+  // reported fixes, so these fixtures stand for freshly ingested buses.
+  confidence: 1,
   delay: null,
   ...over,
 });
@@ -625,31 +630,33 @@ describe("findBunches", () => {
     ).toEqual([]);
   });
 
-  it("detects a bunch from the sample just ingested, not the last drawn frame", () => {
-    // The reason BusMap passes glide=false here. ingest() resets startedAt for
-    // every bus in the snapshot, so a gliding read at that instant returns where
-    // each bus was being DRAWN a moment earlier — a whole poll interval stale.
-    // These two close from 800m apart to 100m, which straddles BUNCH_METRES, so
-    // the gliding read misses the bunch entirely.
+  it("detects a bunch from reported fixes, never from predicted positions", () => {
+    // The reason BusMap passes glide=false here. A fast bus behind a slow one
+    // is predicted to close on it, and mid-interval the two predictions
+    // coincide — but TransLink never reported them together. Bunching claims
+    // something about the real world, so it may only read measurements.
     const field = new BusField(noTracks);
     field.ingest(
       snapshot([
         vehicle({ i: "a", y: 49.28 }),
-        vehicle({ i: "b", y: northOf(49.28, 800) }),
+        vehicle({ i: "b", y: northOf(49.28, 900) }),
       ]),
       0,
     );
     field.ingest(
       snapshot([
-        vehicle({ i: "a", y: northOf(49.28, 900) }),
+        vehicle({ i: "a", y: northOf(49.28, 700) }),
         vehicle({ i: "b", y: northOf(49.28, 1000) }),
       ]),
       90_000,
     );
 
-    expect(bunchesAt(field, 90_000)).toHaveLength(1);
-    // What the call would have found without the rule bunchesAt carries.
-    expect(findBunches(field.positionsAt(90_000))).toEqual([]);
+    // Half a poll on, both are projected to about 1,050m and look bunched.
+    const mid = 90_000 + 45_000;
+    expect(findBunches(field.positionsAt(mid))).toHaveLength(1);
+
+    // The fixes themselves put them 300m apart, which is not a bunch.
+    expect(bunchesAt(field, mid)).toEqual([]);
   });
 
   it("groups three close buses as one bunch, not three pairs", () => {

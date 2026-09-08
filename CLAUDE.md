@@ -61,10 +61,16 @@ Verification gate used by CI and autobuild:
 
 ## Hard constraints
 
-- **1,000 TransLink requests/day, all feeds, one key.** `src/config.ts` spends
-  976 and `src/config.test.ts` fails the build above the cap or below 20
-  requests of headroom. Do not raise `POLL_SECONDS` frequency, lower
-  `TRIP_UPDATE_EVERY`/`ALERTS_EVERY`, or widen the window.
+- **1,000 TransLink requests/day, all feeds, _per key_.** Three keys are
+  configured in the `TRANSLINK_API_KEYS` secret (comma-separated), so the
+  ceiling is 3,000. `src/config.ts` spends 2,896 and `src/config.test.ts` fails
+  the build above the cap or below 20 requests of headroom per key. Do not
+  raise `POLL_SECONDS` frequency, lower `TRIP_UPDATE_EVERY`/`ALERTS_EVERY`, or
+  widen the window. `pollSecondsFor()` derives the rate from the key count, so
+  a revoked key slows the poll rather than overspending the survivors.
+- **The prediction model never calls TransLink.** It learns from bytes the
+  poller already fetched for the map. Rider-facing accuracy has first claim on
+  every request; training rides along on data already paid for.
 - **Service window is 07:00–23:00 Pacific** (`SERVICE_START_HOUR` /
   `SERVICE_END_HOUR`). Outside it the alarm sleeps. The deployed app therefore
   shows the last evening poll overnight — that is correct, never fake buses.

@@ -50,19 +50,29 @@ Prefer a small, complete, verified change over a large one.
   and a local verify cannot catch it.
 - `.github/workflows/**` — CI wiring. The loop's own safety gate depends on it.
 - `src/config.ts` — the poll budget and the TransLink attribution string. The
-  budget encodes a contractual 1,000 requests/day cap and the attribution text
-  is required verbatim by TransLink's Terms of Use. Both are human decisions.
+  budget encodes a contractual 1,000 requests/day cap **per key**, and the
+  attribution text is required verbatim by TransLink's Terms of Use. Both are
+  human decisions.
 - `AUTOPILOT.md` — this file.
 
 ## Constraints
 
 - **Never call `gtfsapi.translink.ca` from a pass.** Every request there counts
-  against a hard 1,000/day cap shared with the live site. Tests must use
+  against a hard 1,000/day-per-key cap shared with the live site. Tests must use
   synthetic protobuf fixtures, which `src/gtfs-rt.test.ts` already builds. If a
   change cannot be verified without a live call, it cannot be verified — say so
   and pick something else.
-- Do not raise the poll rate or widen the service window. That is what the cap
-  is spent on and it is a human decision.
+- Do not raise the poll rate or widen the service window. Three keys are
+  configured and the budget already spends 2,896 of the 3,000 they permit, so
+  there is nothing left to raise it with. Adding a key does not change this:
+  `pollSecondsFor()` derives the rate from the key count, so the cadence
+  follows the secret without anyone editing a constant. A human decides how
+  many keys exist; nothing in a pass may decide to spend them faster.
+- **The prediction model may never issue a TransLink request.** It trains on
+  bytes the poller already fetched for the map. There is deliberately no code
+  path from training to the API, and `src/config.test.ts` asserts the budget
+  contains only rider-facing feeds. Rider-facing accuracy always has first
+  claim on every request; training is a passenger on data already paid for.
 - Do not add a dependency unless it is the only reasonable option. The
   GTFS-Realtime decoder is deliberately hand-rolled to keep the Worker bundle
   small; do not replace it with protobufjs.

@@ -1,4 +1,10 @@
-import { DAILY_LIMIT, TRANSLINK_ATTRIBUTION, dailyRequestBudget } from "./config.js";
+import {
+  DAILY_LIMIT_PER_KEY,
+  TRANSLINK_ATTRIBUTION,
+  dailyRequestBudget,
+  parseApiKeys,
+  pollSecondsFor,
+} from "./config.js";
 import { handleAsset, handleManifest } from "./gtfs-assets.js";
 import { handleStop } from "./stop-api.js";
 import type { Env } from "./types.js";
@@ -14,10 +20,18 @@ export default {
 
     if (url.pathname === "/api/health") {
       const budget = dailyRequestBudget();
+      // The ceiling is per key, so it moves with how many are configured.
+      // Reported rather than assumed: a key removed from the secret silently
+      // changes both the legal limit and the poll rate, and health is where
+      // that becomes visible without reading storage.
+      const keyCount = parseApiKeys(env.TRANSLINK_API_KEYS, env.TRANSLINK_API_KEY).length;
+      const limit = DAILY_LIMIT_PER_KEY * keyCount;
       return Response.json({
         ok: true,
         service: "vancouver-bus-map",
-        budget: { ...budget, limit: DAILY_LIMIT, headroom: DAILY_LIMIT - budget.total },
+        keys: keyCount,
+        pollSeconds: pollSecondsFor(keyCount),
+        budget: { ...budget, limit, headroom: limit - budget.total },
         attribution: TRANSLINK_ATTRIBUTION,
       });
     }
