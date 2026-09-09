@@ -5,13 +5,11 @@ running entirely on Cloudflare.
 
 **Live:** https://vanbus.ryanxu.dev
 
-Buses move along their real route geometry between updates, rather than
-teleporting every poll. Each one is projected forward at its own measured speed,
-so a marker shows where a bus most likely is now rather than where it was last
-confirmed — and it fades as that position ages, sharpening again the moment the
-feed confirms it. Tap a bus for its destination and next stop; tap a stop for the
-next departures, with live predictions layered over the timetable and clearly
-marked as one or the other.
+Buses glide along their real route geometry between updates, rather than
+teleporting every poll — always tweening toward the fix TransLink actually
+reported, never projected past it. Tap a bus for its destination and next
+stop; tap a stop for the next departures, with live predictions layered over
+the timetable and clearly marked as one or the other.
 
 ## Why it is shaped this way
 
@@ -125,7 +123,7 @@ web/src/
   BusMap.tsx           MapLibre, layers, interaction
   basemap.ts           keyless vector basemap providers, with a CARTO fallback
   geo.ts               polyline projection and interpolation
-  buses.ts             per-vehicle position state, from each poll's real fixes
+  buses.ts             per-vehicle glide state
   icons.ts             bus marker icons, pre-rendered once per colour
   gtfs.ts              static data loading
   routes.ts            express, search match, and fleet distribution per route

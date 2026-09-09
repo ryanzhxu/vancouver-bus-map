@@ -35,7 +35,7 @@ export interface WireVehicle {
   s: number;
   /** next stop id */
   p: string;
-  /** shape id, joined from the static trips index so the client can place it on the route */
+  /** shape id, joined from the static trips index so the client can glide */
   h?: string;
   /** trip headsign, e.g. "UBC" */
   d?: string;

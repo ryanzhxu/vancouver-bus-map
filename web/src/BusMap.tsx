@@ -45,6 +45,15 @@ const darkQuery =
     ? window.matchMedia("(prefers-color-scheme: dark)")
     : null;
 
+// A rider who asks the OS for reduced motion should not see buses sliding
+// across the map every frame. The glide is a requestAnimationFrame loop, not a
+// CSS transition, so app.css's prefers-reduced-motion rule cannot stop it; the
+// animate loop reads this and snaps to the latest sample instead.
+const reduceMotionQuery =
+  typeof window !== "undefined" && window.matchMedia
+    ? window.matchMedia("(prefers-reduced-motion: reduce)")
+    : null;
+
 export type FeedState =
   | { kind: "connecting" }
   | {
@@ -726,7 +735,10 @@ export function BusMap({
       const source = map.getSource("buses") as maplibregl.GeoJSONSource | undefined;
       if (!field || !gtfs || !source) return;
 
-      const positions = field.positionsAt(Date.now());
+      // Read the preference live each frame so toggling it in the OS takes
+      // effect without a reload; the check is a cheap boolean.
+      const glide = !(reduceMotionQuery?.matches ?? false);
+      const positions = field.positionsAt(Date.now(), glide);
       const bunches = bunchesRef.current;
       const bunchedIds = new Set(bunches.flatMap((b) => b.busIds));
       // Filled in below as the fleet loop (already visiting every bus once)
