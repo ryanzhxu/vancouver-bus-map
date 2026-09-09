@@ -34,8 +34,8 @@ export function toWire(
     x: round5(v.lon),
     s: v.stopSequence ?? 0,
     p: v.stopId ?? "",
-    // Joined from the static index so the client can place the bus on its
-    // route's real geometry without downloading 128k trips itself.
+    // Joined from the static index so the client can glide along real geometry
+    // without downloading 128k trips itself.
     ...(entry?.[1] ? { h: entry[1] } : {}),
     ...(entry?.[2] ? { d: entry[2] } : {}),
     // Joined from the trip-update predictions so the client can say when the
