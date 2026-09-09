@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { confidence, observedSpeed, predictDistance } from "./predict.js";
+import { confidence, observedSpeed } from "./predict.js";
 
 /**
  * `predict.ts` is hand-duplicated in `web/src/` because the two TypeScript
@@ -15,11 +15,11 @@ interface Fix {
   t: number;
 }
 
-interface PredictCase {
+interface SpeedCase {
   name: string;
-  input: { last: Fix; prev: Fix | null; now: number; trackLength: number };
-  expectedSpeed: number | null;
-  expectedDistance: number;
+  prev: Fix | null;
+  last: Fix;
+  expected: number | null;
 }
 
 interface ConfidenceCase {
@@ -30,7 +30,7 @@ interface ConfidenceCase {
 }
 
 interface Fixture {
-  predictCases: PredictCase[];
+  speedCases: SpeedCase[];
   confidenceCases: ConfidenceCase[];
 }
 
@@ -41,12 +41,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const fixturePath = join(here, "..", "fixtures", "predict-cases.json");
 const fixture = JSON.parse(readFileSync(fixturePath, "utf8")) as Fixture;
 
-describe("observedSpeed and predictDistance", () => {
-  for (const testCase of fixture.predictCases) {
+describe("observedSpeed", () => {
+  for (const testCase of fixture.speedCases) {
     it(testCase.name, () => {
-      const { last, prev, now, trackLength } = testCase.input;
-      expect(observedSpeed(prev, last)).toBe(testCase.expectedSpeed);
-      expect(predictDistance({ last, prev, now, trackLength })).toBe(testCase.expectedDistance);
+      expect(observedSpeed(testCase.prev, testCase.last)).toBe(testCase.expected);
     });
   }
 });

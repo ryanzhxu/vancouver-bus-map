@@ -30,13 +30,6 @@ const northLine: LatLon[] = [
   [49.3, -123.12],
 ];
 
-/** An L-shaped route: north then east, so a straight tween would cut the corner. */
-const cornerLine: LatLon[] = [
-  [49.28, -123.12],
-  [49.285, -123.12],
-  [49.285, -123.113],
-];
-
 const vehicle = (over: Partial<WireVehicle> = {}): WireVehicle => ({
   i: "bus1",
   r: "route1",
@@ -57,7 +50,6 @@ let nextGeneratedAt = 1;
 const snapshot = (
   vehicles: WireVehicle[],
   pollSeconds = 90,
-  previous?: Record<string, [number, number]>,
   generatedAt = nextGeneratedAt++,
 ): Snapshot => ({
   type: "snapshot",
@@ -65,7 +57,6 @@ const snapshot = (
   feedTimestamp: null,
   pollSeconds,
   vehicles,
-  ...(previous ? { previous } : {}),
 });
 
 const noTracks = () => null;
@@ -81,108 +72,39 @@ describe("BusField", () => {
     expect(bus!.lon).toBeCloseTo(-123.12, 6);
   });
 
-  it("glides from a seeded prior fix on the very first snapshot, instead of freezing", () => {
+  it("reads moving=false for a bus's very first snapshot, having nothing to compare against", () => {
     const field = new BusField(noTracks);
-    const seeded: Snapshot = {
-      type: "snapshot",
-      generatedAt: 0,
-      feedTimestamp: null,
-      pollSeconds: 90,
-      vehicles: [vehicle({ y: 49.3 })],
-      previous: { bus1: [49.28, -123.12] },
-    };
+    field.ingest(snapshot([vehicle()]), 1000);
 
-    field.ingest(seeded, 45_000);
-
-    // The seed supplies the second fix a speed estimate needs, so the bus is
-    // projected forward from the moment it arrives rather than sitting on its
-    // reported position until the next poll.
-    expect(field.positionsAt(45_000)[0]!.lat).toBeCloseTo(49.3, 4);
-
-    // Half a poll later it has advanced half a poll's worth beyond that fix.
-    const later = field.positionsAt(45_000 + 45_000)[0]!;
-    expect(later.lat).toBeCloseTo(49.31, 4);
-    expect(later.moving).toBe(true);
+    expect(field.positionsAt(1000)[0]!.moving).toBe(false);
   });
 
-  it("keeps gliding through a redundant re-delivery of the same poll", () => {
+  it("stays exactly on the newest fix no matter how much time passes before the next poll", () => {
+    // No extrapolation: a bus's drawn position never depends on the clock,
+    // only on the last snapshot actually ingested.
+    const field = new BusField(noTracks);
+    field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
+    field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
+
+    expect(field.positionsAt(1000)[0]!.lat).toBeCloseTo(49.3, 6);
+    expect(field.positionsAt(1000 + 45_000)[0]!.lat).toBeCloseTo(49.3, 6);
+    expect(field.positionsAt(1000 + 300_000)[0]!.lat).toBeCloseTo(49.3, 6);
+  });
+
+  it("ignores a redundant re-delivery of the same poll", () => {
     // BusMap.connect() opens the WebSocket and fires an eager REST poll in
     // the same breath, and the DO answers both from its one cached snapshot
-    // when no real tick lands in between — so this exact sequence (a seeded
-    // ingest immediately followed by a same-poll re-delivery a moment later)
-    // is what a fresh page load actually produces.
+    // when no real tick landed in between — so a fresh client's first bus is
+    // typically ingested twice within milliseconds of each other.
     const field = new BusField(noTracks);
-    const seeded = snapshot([vehicle({ y: 49.3 })], 90, { bus1: [49.28, -123.12] }, 1);
-    field.ingest(seeded, 1000);
+    const first = snapshot([vehicle({ y: 49.28 })], 90, 1);
+    expect(field.ingest(first, 1000)).toBe(true);
 
-    const redelivered = snapshot([vehicle({ y: 49.3 })], 90, undefined, 1);
-    field.ingest(redelivered, 1300);
+    const redelivered = snapshot([vehicle({ y: 49.3 })], 90, 1);
+    expect(field.ingest(redelivered, 1300)).toBe(false);
 
-    // The seeded velocity must survive the redundant delivery: half a poll
-    // after the ORIGINAL fix, the bus is still exactly where the first ingest
-    // said it would be — not frozen at 49.3 by a bogus zero-velocity rebase.
-    const later = field.positionsAt(1000 + 45_000)[0]!;
-    expect(later.lat).toBeCloseTo(49.31, 4);
-    expect(later.moving).toBe(true);
-  });
-
-  it("does not sprint when a seeded bus's first real fix lands mid-glide", () => {
-    // A real client almost never connects exactly on a server tick boundary.
-    // Say the true ticks landed at t=0 and t=30_000 (a real 30s poll), but
-    // this client only connects — and gets seeded — at t=50_000, 20s after
-    // the second tick. BusField.ingest has no way to know that 20s of the
-    // "last" fix's staleness; it stamps the seed's last.t as the CONNECT
-    // time, not the tick's true time. That understates elapsed time on every
-    // glide frame until the next real fix, so the bus quietly falls behind
-    // where it truly is.
-    const field = new BusField(alwaysTrack(northLine));
-    const seeded = snapshot([vehicle({ y: 49.28375 })], 30, { bus1: [49.28, -123.12] }, 1);
-    field.ingest(seeded, 50_000);
-
-    // The next real tick, 30s after the TRUE previous one (t=60_000), lands
-    // with the bus's true, further-advanced position.
-    const real = snapshot([vehicle({ y: 49.2875 })], 30, undefined, 2);
-    field.ingest(real, 60_000);
-
-    // The 20s of understated staleness comes due all at once: the bus was
-    // drawn well behind its true position, and correction eases that gap in
-    // over a fixed 1.5s (CORRECTION_MS) meant for "some tens of metres" of
-    // ordinary prediction noise — not a fifth of a poll interval's worth of
-    // real travel. Sample the correction window finely and check no instant
-    // implies a speed beyond what a real bus reaches.
-    const KM_PER_DEGREE = 111;
-    // The fix caps the correction's rate at exactly this ceiling, so the
-    // worst sampled instant lands right on it modulo float rounding and the
-    // 50ms sampling step — 1% of headroom absorbs both without hiding a
-    // regression back toward the 666 km/h this test caught pre-fix.
-    const MAX_PLAUSIBLE_KMH = 130 * 1.01;
-    let worstKmh = 0;
-    for (let dtMs = 0; dtMs < 1600; dtMs += 50) {
-      const a = field.positionsAt(60_000 + dtMs)[0]!;
-      const b = field.positionsAt(60_000 + dtMs + 50)[0]!;
-      const distKm = Math.hypot(b.lat - a.lat, b.lon - a.lon) * KM_PER_DEGREE;
-      const kmh = distKm / (50 / 3_600_000);
-      worstKmh = Math.max(worstKmh, kmh);
-    }
-    expect(worstKmh).toBeLessThan(MAX_PLAUSIBLE_KMH);
-  });
-
-  it("still freezes a bus absent from the seed map, even when other buses have one", () => {
-    const field = new BusField(noTracks);
-    const seeded: Snapshot = {
-      type: "snapshot",
-      generatedAt: 0,
-      feedTimestamp: null,
-      pollSeconds: 90,
-      vehicles: [vehicle({ i: "brand-new", y: 49.3 })],
-      previous: { "some-other-bus": [49.28, -123.12] },
-    };
-
-    field.ingest(seeded, 45_000);
-
-    const [bus] = field.positionsAt(45_000);
-    expect(bus!.lat).toBeCloseTo(49.3, 6);
-    expect(bus!.moving).toBe(false);
+    // The redundant delivery must not have moved the bus: it never folded in.
+    expect(field.positionsAt(1300)[0]!.lat).toBeCloseTo(49.28, 6);
   });
 
   it("tracks several buses at once", () => {
@@ -190,47 +112,6 @@ describe("BusField", () => {
     field.ingest(snapshot([vehicle({ i: "a" }), vehicle({ i: "b" }), vehicle({ i: "c" })]), 0);
     expect(field.size).toBe(3);
     expect(field.positionsAt(0)).toHaveLength(3);
-  });
-
-  describe("without geometry", () => {
-    it("continues past the newest fix along the same straight line", () => {
-      const field = new BusField(noTracks);
-      field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
-      field.ingest(snapshot([vehicle({ y: 49.3 })]), 90_000);
-
-      // Half a poll past the fix, so half the last leg again beyond it.
-      const ahead = field.positionsAt(90_000 + 45_000)[0]!;
-      expect(ahead.lat).toBeCloseTo(49.31, 4);
-    });
-
-    it("arrives exactly at the target by the end of the interval", () => {
-      const field = new BusField(noTracks);
-      field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
-      field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
-
-      expect(field.positionsAt(1000 + 90_000)[0]!.lat).toBeCloseTo(49.3, 6);
-    });
-
-    it("holds the reported sample instead of projecting when motion is reduced", () => {
-      const field = new BusField(noTracks);
-      field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
-      field.ingest(snapshot([vehicle({ y: 49.3 })]), 90_000);
-
-      // Mid-interval the default read has moved on past the fix, while a
-      // reduced-motion caller stays on the fix itself, so nothing slides.
-      const mid = 90_000 + 45_000;
-      expect(field.positionsAt(mid, true)[0]!.lat).toBeCloseTo(49.31, 4);
-      expect(field.positionsAt(mid, false)[0]!.lat).toBeCloseTo(49.3, 6);
-    });
-
-    it("stops at the target rather than overshooting when a snapshot is late", () => {
-      const field = new BusField(noTracks);
-      field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
-      field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
-
-      const late = field.positionsAt(1000 + 300_000)[0]!;
-      expect(late.lat).toBeCloseTo(49.3, 6);
-    });
   });
 
   describe("moving", () => {
@@ -245,35 +126,16 @@ describe("BusField", () => {
       travelling.ingest(snapshot([vehicle({ y: 49.3 })]), 90_000);
       expect(travelling.positionsAt(90_000)[0]!.moving).toBe(true);
     });
-
-    it("reads the same whether or not the caller is gliding", () => {
-      // Reduced motion changes how the position tweens, not what "moving"
-      // means: it must not flip the flag on its own.
-      const field = new BusField(noTracks);
-      field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
-      field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
-
-      for (const now of [1000 + 45_000, 1000 + 90_000, 1000 + 300_000]) {
-        expect(field.positionsAt(now, false)[0]!.moving).toBe(
-          field.positionsAt(now, true)[0]!.moving,
-        );
-      }
-    });
   });
 
   describe("with route geometry", () => {
-    it("follows the corner instead of cutting across it", () => {
-      const field = new BusField(alwaysTrack(cornerLine));
-      field.ingest(snapshot([vehicle({ y: 49.28, x: -123.12 })]), 0);
-      field.ingest(snapshot([vehicle({ y: 49.285, x: -123.113 })]), 1000);
+    it("snaps the raw fix onto the track's polyline", () => {
+      const field = new BusField(alwaysTrack(northLine));
+      field.ingest(snapshot([vehicle({ y: 49.285, x: -123.12 })]), 0);
 
-      // Halfway by distance along an L sits near the elbow, well off the
-      // straight line between the endpoints.
-      const mid = field.positionsAt(1000 + 45_000)[0]!;
-      const diagonalLat = (49.28 + 49.285) / 2;
-      const diagonalLon = (-123.12 + -123.113) / 2;
-      const offDiagonal = Math.hypot(mid.lat - diagonalLat, mid.lon - diagonalLon);
-      expect(offDiagonal).toBeGreaterThan(0.001);
+      const bus = field.positionsAt(0)[0]!;
+      expect(bus.lat).toBeCloseTo(49.285, 6);
+      expect(bus.lon).toBeCloseTo(-123.12, 6);
     });
 
     it("derives a heading, since TransLink sends none", () => {
@@ -281,7 +143,7 @@ describe("BusField", () => {
       field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
       field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
 
-      expect(field.positionsAt(1000 + 45_000)[0]!.bearing).toBeCloseTo(0, 0);
+      expect(field.positionsAt(1000)[0]!.bearing).toBeCloseTo(0, 0);
     });
 
     it("faces backwards when the bus runs against the shape direction", () => {
@@ -289,33 +151,8 @@ describe("BusField", () => {
       field.ingest(snapshot([vehicle({ y: 49.3 })]), 0);
       field.ingest(snapshot([vehicle({ y: 49.28 })]), 90_000);
 
-      expect(field.positionsAt(90_000 + 45_000)[0]!.bearing).toBeCloseTo(180, 0);
+      expect(field.positionsAt(90_000)[0]!.bearing).toBeCloseTo(180, 0);
     });
-
-    it("falls back to a straight line when projection implies an impossible jump", () => {
-      // Two points 20km apart cannot be one 90-second hop; snapping to a
-      // doubled-back leg would teleport the bus.
-      const field = new BusField(alwaysTrack(northLine));
-      field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
-      field.ingest(snapshot([vehicle({ y: 49.5, x: -123.12 })]), 1000);
-
-      const mid = field.positionsAt(1000 + 45_000)[0]!;
-      expect(mid.lat).toBeGreaterThan(49.28);
-      expect(mid.lat).toBeLessThan(49.5);
-    });
-  });
-
-  it("resumes from where a bus is drawn, not from the last sample", () => {
-    // A snapshot arriving mid-glide must not snap the bus backwards.
-    const field = new BusField(noTracks);
-    field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
-    field.ingest(snapshot([vehicle({ y: 49.3 })]), 0);
-
-    const atQuarter = field.positionsAt(22_500)[0]!.lat;
-    field.ingest(snapshot([vehicle({ y: 49.32 })]), 22_500);
-    const justAfter = field.positionsAt(22_600)[0]!.lat;
-
-    expect(justAfter).toBeGreaterThanOrEqual(atQuarter - 1e-6);
   });
 
   it("forgets a bus that stops reporting", () => {
@@ -364,8 +201,8 @@ describe("BusField", () => {
   it("still holds a bus missing from one snapshot but not yet stale", () => {
     const field = new BusField(noTracks);
     field.ingest(snapshot([vehicle({ i: "a" }), vehicle({ i: "b" })]), 0);
-    // "b" drops out of the feed for two minutes. It is still drawn, gliding on
-    // its last sample, so anything keyed off has() must keep showing it.
+    // "b" drops out of the feed for two minutes. It is still drawn, on its
+    // last sample, so anything keyed off has() must keep showing it.
     field.ingest(snapshot([vehicle({ i: "a" })]), 120_000);
 
     expect(field.has("b")).toBe(true);
@@ -699,16 +536,12 @@ describe("findBunches", () => {
     ).toEqual([]);
   });
 
-  it("detects a bunch from reported fixes, never from predicted positions", () => {
-    // The reason BusMap passes glide=false here. A fast bus behind a slow one
-    // is predicted to close on it, and mid-interval the two predictions
-    // coincide — but TransLink never reported them together. Bunching claims
-    // something about the real world, so it may only read measurements.
+  it("agrees with findBunches on the field's own positions", () => {
     const field = new BusField(noTracks);
     field.ingest(
       snapshot([
         vehicle({ i: "a", y: 49.28 }),
-        vehicle({ i: "b", y: northOf(49.28, 900) }),
+        vehicle({ i: "b", y: northOf(49.28, 300) }),
       ]),
       0,
     );
@@ -720,12 +553,7 @@ describe("findBunches", () => {
       90_000,
     );
 
-    // Half a poll on, both are projected to about 1,050m and look bunched.
-    const mid = 90_000 + 45_000;
-    expect(findBunches(field.positionsAt(mid))).toHaveLength(1);
-
-    // The fixes themselves put them 300m apart, which is not a bunch.
-    expect(bunchesAt(field, mid)).toEqual([]);
+    expect(bunchesAt(field, 90_000)).toEqual(findBunches(field.positionsAt(90_000)));
   });
 
   it("groups three close buses as one bunch, not three pairs", () => {

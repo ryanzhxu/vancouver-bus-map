@@ -35,7 +35,7 @@ export interface WireVehicle {
   s: number;
   /** next stop id */
   p: string;
-  /** shape id, joined from the static trips index so the client can glide */
+  /** shape id, joined from the static trips index so the client can place it on the route */
   h?: string;
   /** trip headsign, e.g. "UBC" */
   d?: string;
@@ -54,13 +54,6 @@ export interface Snapshot {
   feedTimestamp: number | null;
   pollSeconds: number;
   vehicles: WireVehicle[];
-  /**
-   * Each vehicle's [lat, lon] from the tick before this one, keyed by entity
-   * id. Sent only on a client's first connect (see LiveFeed.fetch), not on
-   * the ~90s broadcast, so a fresh page can seed a glide from two real GPS
-   * fixes instead of freezing until the next live update.
-   */
-  previous?: Record<string, [number, number]>;
 }
 
 export interface StopPrediction {

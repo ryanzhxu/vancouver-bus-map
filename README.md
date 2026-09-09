@@ -125,7 +125,7 @@ web/src/
   BusMap.tsx           MapLibre, layers, interaction
   basemap.ts           keyless vector basemap providers, with a CARTO fallback
   geo.ts               polyline projection and interpolation
-  buses.ts             per-vehicle glide state
+  buses.ts             per-vehicle position state, from each poll's real fixes
   icons.ts             bus marker icons, pre-rendered once per colour
   gtfs.ts              static data loading
   routes.ts            express, search match, and fleet distribution per route
