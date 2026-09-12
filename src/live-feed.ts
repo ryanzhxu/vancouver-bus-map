@@ -24,6 +24,15 @@ import { toWire } from "./wire.js";
 const SNAPSHOT_KEY = "live:snapshot";
 
 /**
+ * The KV mirror's own expirationTtl (600s) is the freshness contract external
+ * readers get regardless of write cadence, so writing every tick bought
+ * nothing: 30s * 20 = 600s keeps the mirror inside its own TTL window while
+ * cutting the write from every tick (1,680+/day, alone over Workers KV's
+ * free-tier 1,000 writes/day cap) down to about 84/day.
+ */
+const SNAPSHOT_MIRROR_EVERY = 20;
+
+/**
  * Single instance that owns every TransLink request the system makes.
  *
  * A self-rescheduling alarm is the only clock. Cron Triggers floor at one
@@ -146,9 +155,11 @@ export class LiveFeed extends DurableObject<Env> {
     const snapshot = await this.buildSnapshot();
     this.snapshot = snapshot;
 
-    await this.env.SNAPSHOT.put(SNAPSHOT_KEY, JSON.stringify(snapshot), {
-      expirationTtl: 600,
-    });
+    if (tick % SNAPSHOT_MIRROR_EVERY === 0) {
+      await this.env.SNAPSHOT.put(SNAPSHOT_KEY, JSON.stringify(snapshot), {
+        expirationTtl: 600,
+      });
+    }
 
     this.broadcast(snapshot);
   }
