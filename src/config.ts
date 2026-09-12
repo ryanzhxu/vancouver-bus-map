@@ -11,15 +11,15 @@
  * trains on bytes this poller already fetched and never issues a request of
  * its own. There is deliberately no code path from training to TransLink.
  *
- * Service window 07:00-23:00 Pacific = 16h = 57,600s, so 1,920 ticks at 30s.
+ * Service window 08:00-22:00 Pacific = 14h = 50,400s, so 1,680 ticks at 30s.
  *
- *   positions  every tick        = 1,920 requests
- *   trips      every 2nd tick    =   960 requests   (60s predictions)
- *   alerts     every 120th tick  =    16 requests   (hourly)
+ *   positions  every tick        = 1,680 requests
+ *   trips      every 2nd tick    =   840 requests   (60s predictions)
+ *   alerts     every 120th tick  =    14 requests   (hourly)
  *                                  ------------
- *                                    2,896 of 3,000
+ *                                    2,534 of 3,000
  *
- * That leaves 104 requests of headroom for retries and manual pokes. Do not
+ * That leaves 466 requests of headroom for retries and manual pokes. Do not
  * spend it on a faster poll: a failed request still counts against the cap.
  *
  * ALERTS_EVERY tripled from 40 to 120 when the tick tripled in rate. That is
@@ -37,8 +37,8 @@ export const TRIP_UPDATE_EVERY = 2;
 export const ALERTS_EVERY = 120;
 
 /** Local Vancouver hours during which we poll at all. */
-export const SERVICE_START_HOUR = 7;
-export const SERVICE_END_HOUR = 23;
+export const SERVICE_START_HOUR = 8;
+export const SERVICE_END_HOUR = 22;
 
 export const FEEDS = {
   positions: "https://gtfsapi.translink.ca/v3/gtfsposition",

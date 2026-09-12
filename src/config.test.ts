@@ -30,10 +30,10 @@ describe("daily request budget", () => {
 
   it("matches the arithmetic documented in config.ts", () => {
     expect(dailyRequestBudget()).toEqual({
-      positions: 1920,
-      tripUpdates: 960,
-      alerts: 16,
-      total: 2896,
+      positions: 1680,
+      tripUpdates: 840,
+      alerts: 14,
+      total: 2534,
     });
   });
 
@@ -102,7 +102,7 @@ describe("pollSecondsFor", () => {
   });
 
   it("never returns a rate that would overspend the keys it has", () => {
-    const windowSeconds = 16 * 3600;
+    const windowSeconds = 14 * 3600;
     for (const keys of [1, 2, 3, 4]) {
       const seconds = pollSecondsFor(keys);
       const ticks = Math.floor(windowSeconds / seconds);
@@ -134,11 +134,11 @@ describe("vancouverHour", () => {
 
 describe("inServiceWindow", () => {
   const cases: Array<[string, boolean, string]> = [
-    ["2026-09-05T13:59:00Z", false, "06:59 PDT, just before service"],
-    ["2026-09-05T14:00:00Z", true, "07:00 PDT, first tick"],
+    ["2026-09-05T14:59:00Z", false, "07:59 PDT, just before service"],
+    ["2026-09-05T15:00:00Z", true, "08:00 PDT, first tick"],
     ["2026-09-05T22:00:00Z", true, "15:00 PDT, mid afternoon"],
-    ["2026-09-06T05:59:00Z", true, "22:59 PDT, last minutes"],
-    ["2026-09-06T06:00:00Z", false, "23:00 PDT, service ends"],
+    ["2026-09-06T04:59:00Z", true, "21:59 PDT, last minutes"],
+    ["2026-09-06T05:00:00Z", false, "22:00 PDT, service ends"],
     ["2026-09-06T09:00:00Z", false, "02:00 PDT, overnight"],
   ];
 
@@ -151,17 +151,17 @@ describe("inServiceWindow", () => {
 
 describe("msUntilServiceStart", () => {
   it("waits until the same morning when called overnight", () => {
-    // 02:00 PDT -> 5 hours until 07:00.
+    // 02:00 PDT -> 6 hours until 08:00.
     const ms = msUntilServiceStart(new Date("2026-09-06T09:00:00Z"));
-    expect(ms / 3_600_000).toBeGreaterThan(4.5);
-    expect(ms / 3_600_000).toBeLessThan(5.5);
+    expect(ms / 3_600_000).toBeGreaterThan(5.5);
+    expect(ms / 3_600_000).toBeLessThan(6.5);
   });
 
   it("waits until the next morning when called after service ends", () => {
-    // 23:30 PDT -> about 7.5 hours until 07:00.
-    const ms = msUntilServiceStart(new Date("2026-09-06T06:30:00Z"));
-    expect(ms / 3_600_000).toBeGreaterThan(7);
-    expect(ms / 3_600_000).toBeLessThan(8.5);
+    // 22:30 PDT -> about 9.5 hours until 08:00.
+    const ms = msUntilServiceStart(new Date("2026-09-06T05:30:00Z"));
+    expect(ms / 3_600_000).toBeGreaterThan(9);
+    expect(ms / 3_600_000).toBeLessThan(10.5);
   });
 
   it("always returns a positive delay so the alarm never fires in the past", () => {
