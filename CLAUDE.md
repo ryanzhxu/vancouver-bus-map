@@ -44,8 +44,9 @@ Verification gate used by CI and autobuild:
   `/api/stop/*`, `/api/live/*`, `/ws`, else static assets.
 - One Durable Object, `LiveFeed` (name `metro-vancouver`), owns every TransLink
   request. Its clock is a self-rescheduling **alarm**, not a Cron Trigger.
-- Clients get snapshots over a hibernatable WebSocket, or read the KV mirror
-  (`live:snapshot`, 600s TTL) via `/api/live/snapshot`.
+- Clients get snapshots over a hibernatable WebSocket, or via HTTP at
+  `/api/live/snapshot` — both read the Durable Object's own storage directly.
+  There is no separate KV mirror of live state.
 - Static GTFS lives in R2 (`vbm-gtfs`) under `v/{version}/...`, served at the
   public path `/gtfs/{version}/...` as immutable. KV key `gtfs_current` is the
   live-version pointer; `scripts/build-gtfs.ts` moves it only after every
