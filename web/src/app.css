@@ -246,7 +246,9 @@ body {
   min-height: var(--tap);
   padding: 0 0.75rem;
   font: inherit;
-  font-size: 0.9rem;
+  /* 16px, not smaller: iOS Safari zooms the whole page on focus for any
+     text input under that, which is the only <input> in the app. */
+  font-size: 16px;
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--rule);
