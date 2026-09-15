@@ -89,6 +89,15 @@ describe("bottom-of-screen layout", () => {
     expect(attributionTopPx()).toBe(86);
   });
 
+  it("lets the status line wrap whole pieces instead of individual characters", () => {
+    // .status sits next to two flex: none buttons that never shrink, and
+    // carries overflow-wrap: anywhere for arbitrary long error text. Without
+    // flex-wrap, a narrow phone with no room left for buses/age/next-refresh
+    // has nowhere to shrink .status except collapsing to overflow-wrap's
+    // near-zero automatic minimum — every character on its own line.
+    expect(declaration(appCss, ".status", "flex-wrap")).toBe("wrap");
+  });
+
   it("lifts the pulse panel clear of the status bar that opens it", () => {
     // The panel sits at z-index 6 over a bar at 3, so any shortfall here puts it
     // on top of the Pulse and About buttons themselves. .statusbar has no height
@@ -107,11 +116,31 @@ describe("bottom-of-screen layout", () => {
     const statusbarHeight = buttonHeight + paddingTop + paddingBottom + border;
 
     expect(statusbarHeight).toBe(61);
+
+    // .status can wrap to 3 lines (buses/age/next-refresh, then the late-flag
+    // and bunched-flag each on their own line), so the panel must clear that
+    // worst case too, not just the one-line button-height floor above.
+    const statusLineHeight =
+      px(declaration(appCss, ".status", "font-size")) * Number(declaration(appCss, "body", "line-height"));
+    const statusRowGap = px(declaration(appCss, ".status", "row-gap"));
+    const statusThreeLinesHeight = statusLineHeight * 3 + statusRowGap * 2;
+    const worstCaseStatusbarHeight =
+      Math.max(statusThreeLinesHeight, buttonHeight) + paddingTop + paddingBottom + border;
+
     // The panel carries the same env() inset the bar does, so clearing it at a
     // zero inset clears it everywhere.
     expect(offsetPx(declaration(appCss, ".pulse", "bottom"))).toBeGreaterThanOrEqual(
-      statusbarHeight,
+      worstCaseStatusbarHeight,
     );
+  });
+
+  it("keeps a long headsign from collapsing to one character per line", () => {
+    // Same failure mode as .status: overflow-wrap: anywhere on the headsign
+    // (below) gives this flex item a near-zero automatic minimum, and its
+    // siblings here (the badge, Follow, and close button) are all flex: none.
+    // A positive min-width overrides that collapse.
+    expect(px(declaration(appCss, ".buscard-title", "min-width"))).toBeGreaterThan(0);
+    expect(declaration(appCss, ".buscard-title strong", "overflow-wrap")).toBe("anywhere");
   });
 
   it("caps the card height so it never overflows above the viewport", () => {

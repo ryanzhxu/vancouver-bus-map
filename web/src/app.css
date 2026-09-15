@@ -125,13 +125,23 @@ body {
 
 .status {
   display: flex;
+  /* Without this, a narrow phone has no room for every piece (buses count,
+     age, next-refresh, late/bunched flags) on one line, and the two
+     about-buttons never shrink (flex: none) — so the row had nowhere to give
+     except overflow-wrap: anywhere collapsing .status to a near-zero minimum
+     width, wrapping every character onto its own line instead of stopping at
+     a word boundary. Wrapping whole pieces onto a second line first avoids
+     that collapse. */
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem;
+  column-gap: 0.4rem;
+  row-gap: 0.15rem;
   font-size: 0.9rem;
   color: var(--ink-2);
   min-width: 0;
   flex: 1;
-  /* A long error must wrap inside the bar, not push the button off screen. */
+  /* A long error still has no natural break points, so it needs its own
+     fallback once wrapping whole pieces isn't enough. */
   overflow-wrap: anywhere;
 }
 
@@ -362,12 +372,15 @@ body {
 .pulse {
   position: absolute;
   right: 12px;
-  /* .statusbar's own height, so the panel sits above it rather than over it:
-     1px border + 0.5rem top padding + one --tap (44px) button + max(0.5rem,
-     env(safe-area-inset-bottom)) bottom padding = 61px at zero inset. Without
-     this the panel painted over the bar on every device, and on a notched
+  /* .statusbar's own height, so the panel sits above it rather than over it.
+     .status can now wrap to 3 lines on a narrow phone (buses/age/next-refresh,
+     then the late-flag and bunched-flag each on their own line): 3 * (0.9rem
+     font * 1.45 line-height) + 2 * 0.15rem row-gap = 4.215rem of text, plus
+     1px border + 0.5rem top padding + max(0.5rem, env(safe-area-inset-bottom))
+     bottom padding = 5.278rem at zero inset. 5.5rem clears that with room to
+     spare — below it the panel painted over that third line, and on a notched
      phone covered the Pulse and About buttons that open it. */
-  bottom: calc(61px + env(safe-area-inset-bottom));
+  bottom: calc(5.5rem + env(safe-area-inset-bottom));
   width: min(280px, calc(100vw - 24px));
   z-index: 6;
   background: var(--surface);
@@ -579,7 +592,13 @@ body {
 
 .buscard-title {
   flex: 1;
-  min-width: 0;
+  /* A floor, not 0: overflow-wrap: anywhere on the headsign below means the
+     browser's automatic minimum width for this flex item is close to a
+     single character, so next to the badge and two flex: none buttons a long
+     headsign on a narrow phone could collapse to one character per line —
+     the same failure .status's flex-wrap fixes. This keeps enough width for
+     a readable few characters per wrapped line instead. */
+  min-width: 4.5rem;
   display: flex;
   flex-direction: column;
   line-height: 1.25;
