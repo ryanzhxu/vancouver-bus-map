@@ -20,6 +20,7 @@ import {
 import { DEFAULT_ROUTE_COLOR, type GtfsData } from "./gtfs.js";
 import { busiestRoutes, worstDelayedRoutes, type Highlight, type RouteMatch } from "./routes.js";
 import { useEscapeToClose } from "./useEscapeToClose.js";
+import { useUpdateCheck } from "./useUpdateCheck.js";
 
 /** Matches the stop layer's minzoom in BusMap. */
 const STOP_MIN_ZOOM = 14;
@@ -49,6 +50,7 @@ export function App() {
   const [vehicles, setVehicles] = useState<WireVehicle[]>([]);
   const [followId, setFollowId] = useState<string | null>(null);
   const [showPulse, setShowPulse] = useState(false);
+  const updateAvailable = useUpdateCheck();
 
   const highlight: Highlight = { routeId: route?.routeId ?? null, expressOnly };
   const labelFor = (routeId: string) => gtfs?.routeLabel(routeId) ?? routeId;
@@ -85,7 +87,11 @@ export function App() {
         onToggleExpress={() => setExpressOnly((on) => !on)}
       />
 
-      {!bus && !stop && <Hint feed={feed} zoom={zoom} />}
+      {updateAvailable ? (
+        <UpdateBanner />
+      ) : (
+        !bus && !stop && <Hint feed={feed} zoom={zoom} />
+      )}
 
       {bus && (
         <BusCard
@@ -217,6 +223,22 @@ function BusCard({
           <dd>{bus.stopSequence || "—"}</dd>
         </div>
       </dl>
+    </div>
+  );
+}
+
+/**
+ * Tells a rider sitting on a backgrounded, now-stale tab that a newer deploy
+ * exists, since nothing else short of leaving and reopening the app would.
+ * Shares .hint's position (see app.css) rather than forcing a reload outright
+ * — a rider mid-way through checking a bus should not have their card yanked
+ * away without asking.
+ */
+function UpdateBanner() {
+  return (
+    <div className="update-banner" role="status">
+      <span>Update available</span>
+      <button onClick={() => window.location.reload()}>Refresh</button>
     </div>
   );
 }

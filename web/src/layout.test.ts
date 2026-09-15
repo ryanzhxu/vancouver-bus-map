@@ -143,6 +143,15 @@ describe("bottom-of-screen layout", () => {
     expect(declaration(appCss, ".buscard-title strong", "overflow-wrap")).toBe("anywhere");
   });
 
+  it("puts the update banner exactly where the hint sits, since one replaces the other", () => {
+    // App.tsx renders .update-banner in .hint's slot, never both at once, so
+    // if either one's clearance from the route search or the zoom controls
+    // ever changes, the other must move with it.
+    for (const prop of ["top", "left", "right"] as const) {
+      expect(declaration(appCss, ".update-banner", prop)).toBe(declaration(appCss, ".hint", prop));
+    }
+  });
+
   it("caps the card height so it never overflows above the viewport", () => {
     // .app is overflow:hidden, so a card taller than the space above its bottom
     // anchor loses its header and × button off the top of the screen. The cap

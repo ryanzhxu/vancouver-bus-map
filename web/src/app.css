@@ -831,3 +831,47 @@ body {
   /* Guidance should never block a tap on the map behind it. */
   pointer-events: none;
 }
+
+/* Shares .hint's top/left/right exactly (see web/src/layout.test.ts) — it
+   replaces the hint in that same slot rather than adding a second thing to
+   clear, and it needs the identical clearance from the route search and the
+   zoom controls that .hint already has. Unlike .hint this is interactive, so
+   it sets its own width, padding, and pointer-events instead of reusing the
+   rest of that rule. */
+.update-banner {
+  position: absolute;
+  top: calc(max(0.75rem, env(safe-area-inset-top) + 0.75rem) + var(--tap) + 0.5rem);
+  left: max(0.75rem, env(safe-area-inset-left));
+  right: calc(3.25rem + env(safe-area-inset-right));
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 0.4rem 0.4rem 0.4rem 0.85rem;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.update-banner button {
+  flex: none;
+  min-height: var(--tap);
+  padding: 0 0.9rem;
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent-fill);
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
