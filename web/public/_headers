@@ -1,0 +1,6 @@
+# Vite names every file in /assets with a content hash, so a code change is a
+# new filename, never a mutated one at the same URL — safe to cache forever.
+# Without this, Cloudflare's Workers Assets default (max-age=0, must-revalidate)
+# applied here too, which is only actually needed for the unhashed index.html.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
