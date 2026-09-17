@@ -19,6 +19,7 @@ import {
 } from "./buses.js";
 import { DEFAULT_ROUTE_COLOR, type GtfsData } from "./gtfs.js";
 import { busiestRoutes, worstDelayedRoutes, type Highlight, type RouteMatch } from "./routes.js";
+import { TripPlanCard, type StopPickMode } from "./TripPlanCard.js";
 import { useEscapeToClose } from "./useEscapeToClose.js";
 import { useUpdateCheck } from "./useUpdateCheck.js";
 
@@ -50,6 +51,10 @@ export function App() {
   const [vehicles, setVehicles] = useState<WireVehicle[]>([]);
   const [followId, setFollowId] = useState<string | null>(null);
   const [showPulse, setShowPulse] = useState(false);
+  const [showTripPlan, setShowTripPlan] = useState(false);
+  const [tripFrom, setTripFrom] = useState<SelectedStop | null>(null);
+  const [tripTo, setTripTo] = useState<SelectedStop | null>(null);
+  const [tripPickMode, setTripPickMode] = useState<StopPickMode>(null);
   const updateAvailable = useUpdateCheck();
 
   const highlight: Highlight = { routeId: route?.routeId ?? null, expressOnly };
@@ -76,6 +81,12 @@ export function App() {
         highlight={highlight}
         followId={followId}
         onStopFollowing={() => setFollowId(null)}
+        stopPickMode={tripPickMode}
+        onPickStop={(next) => {
+          if (tripPickMode === "from") setTripFrom(next);
+          else if (tripPickMode === "to") setTripTo(next);
+          setTripPickMode(null);
+        }}
       />
 
       <RouteSearch
@@ -90,7 +101,7 @@ export function App() {
       {updateAvailable ? (
         <UpdateBanner />
       ) : (
-        !bus && !stop && <Hint feed={feed} zoom={zoom} />
+        !bus && !stop && !showTripPlan && <Hint feed={feed} zoom={zoom} />
       )}
 
       {bus && (
@@ -105,9 +116,32 @@ export function App() {
         />
       )}
       {stop && <StopCard stop={stop} gtfs={gtfs} onClose={() => setStop(null)} />}
+      {showTripPlan && (
+        <TripPlanCard
+          gtfs={gtfs}
+          from={tripFrom}
+          to={tripTo}
+          pickMode={tripPickMode}
+          onSetFrom={setTripFrom}
+          onSetTo={setTripTo}
+          onPickOnMap={(which) => setTripPickMode(which)}
+          onClose={() => {
+            setShowTripPlan(false);
+            setTripPickMode(null);
+          }}
+        />
+      )}
 
       <div className="statusbar">
         <StatusPill feed={feed} />
+        <button
+          className="about-button"
+          onClick={() => setShowTripPlan((on) => !on)}
+          aria-label="Plan a trip"
+          aria-expanded={showTripPlan}
+        >
+          Plan trip
+        </button>
         <button
           className="about-button"
           onClick={() => setShowPulse((on) => !on)}

@@ -100,6 +100,8 @@ export function BusMap({
   highlight,
   followId,
   onStopFollowing,
+  stopPickMode,
+  onPickStop,
 }: {
   onState: (state: FeedState) => void;
   onSelect: (bus: SelectedBus | null) => void;
@@ -110,6 +112,9 @@ export function BusMap({
   highlight: Highlight;
   followId: string | null;
   onStopFollowing: () => void;
+  /** While set, a stop tap resolves to onPickStop instead of opening StopCard. */
+  stopPickMode: "from" | "to" | null;
+  onPickStop: (stop: SelectedStop) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
@@ -137,6 +142,10 @@ export function BusMap({
   followRef.current = followId;
   const onStopFollowingRef = useRef(onStopFollowing);
   onStopFollowingRef.current = onStopFollowing;
+  const stopPickModeRef = useRef(stopPickMode);
+  stopPickModeRef.current = stopPickMode;
+  const onPickStopRef = useRef(onPickStop);
+  onPickStopRef.current = onPickStop;
   /** Latest wire record per bus, for the detail sheet. */
   const wireById = useRef(
     new Map<string, { r: string; d?: string; p: string; s: number; a?: number; l?: number }>(),
@@ -434,6 +443,18 @@ export function BusMap({
           [event.point.x - 12, event.point.y - 12],
           [event.point.x + 12, event.point.y + 12],
         ];
+
+        // Picking a trip-plan endpoint only resolves stop taps — a bus tap or
+        // an empty-map tap is ignored rather than closing the picker.
+        if (stopPickModeRef.current) {
+          const stopLayer = map.getLayer("stop-dots") ? ["stop-dots"] : [];
+          const stopHits =
+            stopLayer.length > 0 ? map.queryRenderedFeatures(box, { layers: stopLayer }) : [];
+          const stop = stopFromFeatureId(stopHits[0]?.properties?.["id"] as string | undefined);
+          if (stop) onPickStopRef.current(stop);
+          return;
+        }
+
         // Buses win ties: they are smaller targets and the more likely intent.
         const busHits = map.queryRenderedFeatures(box, { layers: ["bus-icons"] });
         if (busHits.length > 0) {
@@ -525,18 +546,16 @@ export function BusMap({
       );
     }
 
-    function selectStop(id: string | undefined): void {
+    function stopFromFeatureId(id: string | undefined): SelectedStop | null {
       const gtfs = gtfsRef.current;
-      if (!id || !gtfs) {
-        onSelectStopRef.current(null);
-        return;
-      }
+      if (!id || !gtfs) return null;
       const stop = gtfs.stop(id);
-      if (!stop) {
-        onSelectStopRef.current(null);
-        return;
-      }
-      onSelectStopRef.current({ id: stop.i, name: stop.n, code: stop.c, accessible: stop.w });
+      if (!stop) return null;
+      return { id: stop.i, name: stop.n, code: stop.c, accessible: stop.w };
+    }
+
+    function selectStop(id: string | undefined): void {
+      onSelectStopRef.current(stopFromFeatureId(id));
     }
 
     function select(id: string | undefined): void {

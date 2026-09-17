@@ -800,6 +800,89 @@ body {
   font-size: 0.88rem;
 }
 
+/* ---------- trip planner ---------- */
+
+.tripplancard {
+  max-width: 28rem;
+}
+
+.tripplan-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--rule);
+}
+
+.tripplan-row:first-of-type {
+  border-top: 0;
+}
+
+.tripplan-label {
+  flex: none;
+  width: 2.75rem;
+  color: var(--ink-3);
+  font-size: 0.8rem;
+}
+
+.tripplan-stop {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tripplan-row-picking {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.tripplan-picker-controls {
+  display: flex;
+  gap: 6px;
+}
+
+.itineraries {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.itinerary {
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--rule);
+}
+
+.itinerary:first-child {
+  border-top: 0;
+}
+
+.itinerary-transfer {
+  margin: 0.3rem 0;
+  color: var(--ink-3);
+  font-size: 0.78rem;
+}
+
+.itinerary-step {
+  display: grid;
+  grid-template-columns: 3.25rem 1fr auto;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.itinerary-stop {
+  overflow-wrap: anywhere;
+  font-size: 0.9rem;
+}
+
+.itinerary-arrive {
+  margin-top: 0.3rem;
+  color: var(--ink-2);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
 /* ---------- guidance ---------- */
 
 .hint {
