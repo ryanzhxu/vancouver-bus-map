@@ -18,7 +18,7 @@ import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { parseCsvLine, round6, simplify, toSeconds, type LatLon } from "./gtfs-util.js";
+import { invertStopRoutes, parseCsvLine, round6, simplify, toSeconds, type LatLon } from "./gtfs-util.js";
 
 const execFile = promisify(execFileCb);
 
@@ -368,6 +368,14 @@ async function buildSchedules(
   }
 
   await writeJson("stop-routes.json", stopRoutes);
+
+  // The trip planner needs the opposite direction — which stops a route
+  // serves — to find candidate transfer stops without scanning every stop.
+  const routeStops = invertStopRoutes(stopRoutes);
+  await mkdir(join(OUT, "route-stops"), { recursive: true });
+  for (const [routeId, stopIds] of Object.entries(routeStops)) {
+    await writeJson(join("route-stops", `${routeId}.json`), stopIds);
+  }
 
   const missing = [...byStop.keys()].filter((id) => !stops.has(id)).length;
   console.log(

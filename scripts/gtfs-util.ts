@@ -109,3 +109,25 @@ export function perpendicularDistance(p: LatLon, a: LatLon, b: LatLon): number {
 }
 
 export const round6 = (n: number): number => Math.round(n * 1e6) / 1e6;
+
+/**
+ * Invert stopId -> route ids into routeId -> stop ids.
+ *
+ * buildSchedules() already knows which routes serve a stop, for the stop
+ * card. The trip planner needs the opposite direction too — which stops a
+ * route serves — to find candidate transfer stops without scanning every
+ * stop in the system.
+ */
+export function invertStopRoutes(stopRoutes: Record<string, string[]>): Record<string, string[]> {
+  const byRoute = new Map<string, string[]>();
+
+  for (const [stopId, routeIds] of Object.entries(stopRoutes)) {
+    for (const routeId of routeIds) {
+      let list = byRoute.get(routeId);
+      if (!list) byRoute.set(routeId, (list = []));
+      list.push(stopId);
+    }
+  }
+
+  return Object.fromEntries(byRoute);
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCsvLine, simplify, toSeconds, type LatLon } from "./gtfs-util.js";
+import { invertStopRoutes, parseCsvLine, simplify, toSeconds, type LatLon } from "./gtfs-util.js";
 
 describe("parseCsvLine", () => {
   it("splits a plain row", () => {
@@ -96,5 +96,26 @@ describe("simplify", () => {
     const before = JSON.stringify(pts);
     simplify(pts, 0.5);
     expect(JSON.stringify(pts)).toBe(before);
+  });
+});
+
+describe("invertStopRoutes", () => {
+  it("groups stops under the routes that serve them", () => {
+    const result = invertStopRoutes({
+      "stop-a": ["route-1", "route-2"],
+      "stop-b": ["route-1"],
+    });
+
+    expect(result["route-1"]).toEqual(["stop-a", "stop-b"]);
+    expect(result["route-2"]).toEqual(["stop-a"]);
+  });
+
+  it("returns an empty object for no stops", () => {
+    expect(invertStopRoutes({})).toEqual({});
+  });
+
+  it("drops no routes, even ones serving only a single stop", () => {
+    const result = invertStopRoutes({ "stop-a": ["rare-route"] });
+    expect(result["rare-route"]).toEqual(["stop-a"]);
   });
 });
