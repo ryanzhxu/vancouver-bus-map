@@ -3,7 +3,6 @@ import {
   bearingBetween,
   buildTrack,
   distance,
-  lerp,
   pointAtDistance,
   projectOntoTrack,
   type LatLon,
@@ -46,10 +45,9 @@ export interface RenderedBus {
   lon: number;
   bearing: number;
   /**
-   * True when the bus's current target displaced from its previous one by
-   * more than the jitter threshold. Measured on the reported fixes
-   * themselves, never on the drawn (mid-glide) position, so a parked bus that
-   * keeps transmitting the same spot is never read as travelling.
+   * True when the bus's current fix displaced from its previous one by more
+   * than the jitter threshold, so a parked bus that keeps transmitting the
+   * same spot is never read as travelling.
    */
   moving: boolean;
   /** Delay against schedule in seconds, or null when the feed gave none. */
@@ -271,14 +269,12 @@ interface BusState {
   routeId: string;
   tripId: string;
   track: Track | null;
-  /** Where this bus's current glide starts and ends. */
+  /** This bus's previous and current reported fix. */
   from: LatLon;
   to: LatLon;
   /** The same two points as distances along the track, when geometry exists. */
   fromDistance: number | null;
   toDistance: number | null;
-  startedAt: number;
-  durationMs: number;
   lastSeen: number;
   delay: number | null;
 }
@@ -289,12 +285,12 @@ const STALE_MS = 6 * 60_000;
 /**
  * Holds every bus and answers "where is each one right now".
  *
- * Positions arrive on a fixed poll. Between two polls, each bus glides along
- * its route's polyline from wherever it was last drawn to the fix that just
- * landed, arriving exactly as the next poll is due — never sooner, and never
- * projected past a fix TransLink actually reported. A bus with no geometry
- * falls back to a straight line, which is visibly worse but never wrong
- * enough to matter for a single sample.
+ * Each bus is drawn exactly at its most recently reported fix — never
+ * tweened or extrapolated between polls, so what is on the map is always
+ * what TransLink actually reported a moment ago. When the bus's route shape
+ * has loaded, the fix is projected onto that polyline so the bus sits on the
+ * road rather than mid-air; a bus with no geometry yet is drawn at its raw
+ * coordinates instead.
  */
 export class BusField {
   private buses = new Map<string, BusState>();
@@ -309,7 +305,7 @@ export class BusField {
    * the same breath, and the DO answers both from the same cached snapshot
    * when no real tick landed in between — so a client's very first bus is
    * typically ingested twice within milliseconds of each other. Without this
-   * guard the second call would restart every bus's glide from almost exactly
+   * guard the second call would re-fold every bus's fix into almost exactly
    * where it already is, for no reason — harmless, but a wasted recompute on
    * every single connect.
    */
@@ -326,7 +322,7 @@ export class BusField {
   /**
    * True while this bus is still drawn on the map.
    *
-   * A bus missing from one snapshot is still here — it keeps gliding on its
+   * A bus missing from one snapshot is still here — it stays drawn at its
    * last sample until dropStale gives up on it. Callers that hold their own
    * per-bus record use this to tell "briefly absent" from "gone".
    */
@@ -335,11 +331,10 @@ export class BusField {
   }
 
   /**
-   * Fold a new snapshot in, starting a fresh glide for every bus toward the
-   * fix it just reported. Returns false for a redundant re-delivery of a poll
-   * already ingested (see lastGeneratedAt) — callers that schedule off the
-   * poll cadence, such as the "next update in Ns" countdown, must skip those
-   * rather than restart it.
+   * Fold a new snapshot in, recording each bus's newly reported fix. Returns
+   * false for a redundant re-delivery of a poll already ingested (see
+   * lastGeneratedAt) — callers that schedule off the poll cadence, such as the
+   * "next update in Ns" countdown, must skip those rather than restart it.
    */
   ingest(snapshot: Snapshot, now = Date.now()): boolean {
     // Same poll as last time: the eager REST pollOnce() and the WebSocket's
@@ -356,10 +351,10 @@ export class BusField {
       const existing = this.buses.get(v.i);
       const track = this.tracks(v.t, v.r);
 
-      // Start the glide from wherever the bus is being drawn right now, not
-      // from its previous target — otherwise a snapshot landing early or late
-      // would jerk the bus backward or skip it forward before continuing.
-      const from = existing ? this.positionOf(existing, now).point : target;
+      // The bus is always drawn at its last reported fix, so that fix is
+      // where this new one is measured from. A brand new bus has nothing
+      // earlier to compare against, so it starts facing nowhere in particular.
+      const from = existing ? existing.to : target;
 
       const fromDistance = track
         ? projectOntoTrack(track, from, existing?.toDistance ?? undefined).distanceAlong
@@ -377,8 +372,6 @@ export class BusField {
         to: target,
         fromDistance,
         toDistance,
-        startedAt: now,
-        durationMs: this.pollMs,
         lastSeen: now,
         delay: v.l ?? null,
       });
@@ -389,19 +382,15 @@ export class BusField {
   }
 
   /**
-   * Every bus, positioned for this instant.
-   *
-   * When `glide` is false, each bus snaps to its latest reported sample
-   * instead of tweening toward it, so nothing moves between snapshots. The
-   * map reads `prefers-reduced-motion` and passes false there, which the
-   * animation must honor itself because it is driven by requestAnimationFrame,
-   * not CSS — the stylesheet's reduced-motion rule cannot reach it.
+   * Every bus, at its most recently reported fix. Nothing here moves between
+   * snapshots — a refresh moves a bus straight to its next real position
+   * rather than gliding or extrapolating toward one.
    */
-  positionsAt(now = Date.now(), glide = true): RenderedBus[] {
+  positionsAt(now = Date.now()): RenderedBus[] {
     const out: RenderedBus[] = [];
 
     for (const bus of this.buses.values()) {
-      const { point, bearing, moving } = this.positionOf(bus, now, glide);
+      const { point, bearing, moving } = this.positionOf(bus);
       out.push({
         id: bus.id,
         routeId: bus.routeId,
@@ -411,35 +400,41 @@ export class BusField {
         bearing,
         moving,
         delay: bus.delay,
-        confidence: confidence(now - bus.startedAt, this.pollMs),
+        confidence: confidence(now - bus.lastSeen, this.pollMs),
       });
     }
 
     return out;
   }
 
-  private positionOf(
-    bus: BusState,
-    now: number,
-    glide = true,
-  ): { point: LatLon; bearing: number; moving: boolean } {
-    const progress = glide ? clamp01((now - bus.startedAt) / bus.durationMs) : 1;
-    // A fact about the feed, not the animation: whether the bus's target
-    // displaced between its last two samples. Independent of progress/glide
-    // on purpose — a parked bus that keeps transmitting the same fix is
-    // re-ingested every snapshot regardless, and reduced motion must not
-    // change what "moving" means, only how the position tweens.
+  private positionOf(bus: BusState): { point: LatLon; bearing: number; moving: boolean } {
+    // A fact about the feed: whether the bus's fix displaced from the one
+    // before it. A parked bus that keeps transmitting the same spot is
+    // re-ingested every snapshot regardless, so this must not be confused
+    // with whether the bus is currently drawn at that fix.
     const moving = distance(bus.from, bus.to) > MOVEMENT_THRESHOLD_METRES / METRES_PER_DEGREE;
+
+    // A route's shape bundle loads asynchronously and may not have been in
+    // place for this bus's first fix. Recheck here so the heading corrects
+    // itself within a frame or two of the fetch finishing, rather than
+    // staying wrong until the bus's next real fix up to a whole poll later.
+    if (!bus.track) {
+      const track = this.tracks(bus.tripId, bus.routeId);
+      if (track) {
+        bus.track = track;
+        bus.fromDistance = projectOntoTrack(track, bus.from).distanceAlong;
+        bus.toDistance = projectOntoTrack(track, bus.to, bus.fromDistance).distanceAlong;
+      }
+    }
 
     if (bus.track && bus.fromDistance !== null && bus.toDistance !== null) {
       // Guard against a bad projection sending the bus backwards along the
-      // route. Buses do reverse at termini, but not several km in one poll.
+      // route. Buses do reverse at termini, but not several km between fixes.
       const delta = bus.toDistance - bus.fromDistance;
-      if (Math.abs(delta) < MAX_GLIDE_DEGREES) {
-        const along = bus.fromDistance + delta * progress;
-        const heading = bearingAt(bus.track, along);
+      if (Math.abs(delta) < MAX_JUMP_DEGREES) {
+        const heading = bearingAt(bus.track, bus.toDistance);
         return {
-          point: pointAtDistance(bus.track, along),
+          point: pointAtDistance(bus.track, bus.toDistance),
           // Travelling backwards along the shape means the bus faces the other way.
           bearing: delta < 0 ? (heading + 180) % 360 : heading,
           moving,
@@ -448,9 +443,10 @@ export class BusField {
     }
 
     // No geometry, or the track projection implied an impossible jump:
-    // tween the straight line between the two raw points instead.
+    // report the raw fix and face it in the direction of the last
+    // real displacement.
     return {
-      point: lerp(bus.from, bus.to, progress),
+      point: bus.to,
       bearing: bearingBetween(bus.from, bus.to),
       moving,
     };
@@ -474,11 +470,7 @@ export class BusField {
  * the 620 to the ferry genuinely cover several km between polls, and clipping
  * them would make the express routes the ones that look broken.
  */
-const MAX_GLIDE_DEGREES = 0.03;
-
-function clamp01(n: number): number {
-  return n < 0 ? 0 : n > 1 ? 1 : n;
-}
+const MAX_JUMP_DEGREES = 0.03;
 
 
 /**
@@ -586,19 +578,9 @@ export function bearingDelta(a: number, b: number): number {
  * Grouping is transitive: three buses in a line form one bunch of three, not
  * three overlapping pairs, which is how a rider would describe it.
  */
-/**
- * The bunches in `field` at `now`, detected from the samples just ingested.
- *
- * Exists so the glide argument below is not a decision buried in a .tsx file
- * that no test can reach. It is load-bearing: ingest() has just reset
- * startedAt for every bus in the snapshot, so a gliding read returns wherever
- * each bus was being *drawn* the instant before — up to a whole poll interval
- * stale, against BUNCH_METRES's 200m. false snaps to the sample just
- * ingested. The drawn lines still glide between polls, because animate() does
- * its own gliding read.
- */
+/** The bunches in `field` at `now`, detected from the samples just ingested. */
 export function bunchesAt(field: BusField, now: number): Bunch[] {
-  return findBunches(field.positionsAt(now, false));
+  return findBunches(field.positionsAt(now));
 }
 
 export function findBunches(buses: RenderedBus[], metres = BUNCH_METRES): Bunch[] {

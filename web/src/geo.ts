@@ -1,12 +1,12 @@
 /**
- * Polyline maths for gliding buses along their real route geometry.
+ * Polyline maths for snapping buses onto their real route geometry.
  *
- * The position feed samples every 30 seconds, which is 150-200m of travel. A
- * straight line between samples cuts corners and drives buses through
- * buildings. Instead we project each sample onto the route's own polyline and
- * move along that line, so a bus turning a corner actually turns. The same
- * projection is what lets predict.ts extrapolate forward in one dimension:
- * distance along a route, rather than a bearing across open space.
+ * A bus's raw GPS fix sits slightly off the road, and a straight line between
+ * two fixes cuts corners and drives buses through buildings. Instead we
+ * project each fix onto the route's own polyline, so a bus drawn at a corner
+ * is drawn turning it, not cutting across it. The same projection is what
+ * lets predict.ts reason about distance along a route, rather than a bearing
+ * across open space.
  *
  * Coordinates are [lat, lon] degrees, matching the shape artifacts. Longitude
  * degrees are narrower than latitude degrees away from the equator, so every

@@ -34,7 +34,7 @@ export function toWire(
     x: round5(v.lon),
     s: v.stopSequence ?? 0,
     p: v.stopId ?? "",
-    // Joined from the static index so the client can glide along real geometry
+    // Joined from the static index so the client can snap onto real geometry
     // without downloading 128k trips itself.
     ...(entry?.[1] ? { h: entry[1] } : {}),
     ...(entry?.[2] ? { d: entry[2] } : {}),

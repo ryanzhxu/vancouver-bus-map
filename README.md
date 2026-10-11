@@ -5,11 +5,11 @@ running entirely on Cloudflare.
 
 **Live:** https://vanbus.ryanxu.dev
 
-Buses glide along their real route geometry between updates, rather than
-teleporting every poll — always tweening toward the fix TransLink actually
-reported, never projected past it. Tap a bus for its destination and next
-stop; tap a stop for the next departures, with live predictions layered over
-the timetable and clearly marked as one or the other.
+Each bus is drawn exactly where TransLink last reported it, snapped onto its
+real route geometry rather than hanging mid-air — never tweened or projected
+past the fix actually received. Tap a bus for its destination and next stop;
+tap a stop for the next departures, with live predictions layered over the
+timetable and clearly marked as one or the other.
 
 ## Why it is shaped this way
 
@@ -122,8 +122,8 @@ web/src/
   App.tsx              the shell: shared state, status bar, and the dialog cards
   BusMap.tsx           MapLibre, layers, interaction
   basemap.ts           keyless vector basemap providers, with a CARTO fallback
-  geo.ts               polyline projection and interpolation
-  buses.ts             per-vehicle glide state
+  geo.ts               polyline projection
+  buses.ts             per-vehicle fix state
   icons.ts             bus marker icons, pre-rendered once per colour
   gtfs.ts              static data loading
   routes.ts            express, search match, and fleet distribution per route

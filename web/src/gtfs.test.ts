@@ -15,7 +15,7 @@ afterEach(() => {
 /**
  * Route geometry loads lazily and is meant to fetch each bundle once. But a
  * dropped fetch on a flaky phone connection must not be cached as "done": if it
- * were, the route would glide on straight lines for the life of the tab, never
+ * were, the route would draw on straight lines for the life of the tab, never
  * retrying even after the network recovers.
  */
 describe("GtfsData.ensureRoute", () => {
