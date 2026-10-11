@@ -22,7 +22,7 @@ import {
   type Snapshot,
   type WireVehicle,
 } from "./buses.js";
-import { buildTrack, type LatLon } from "./geo.js";
+import { buildTrack, type LatLon, type Track } from "./geo.js";
 
 const northLine: LatLon[] = [
   [49.28, -123.12],
@@ -110,45 +110,16 @@ describe("BusField", () => {
   });
 
   describe("without geometry", () => {
-    it("glides in a straight line between samples", () => {
+    it("jumps straight to the latest sample rather than tweening toward it", () => {
       const field = new BusField(noTracks);
       field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
       field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
 
-      const halfway = field.positionsAt(1000 + 45_000)[0]!;
-      expect(halfway.lat).toBeCloseTo(49.29, 4);
-    });
-
-    it("arrives exactly at the target by the end of the interval", () => {
-      const field = new BusField(noTracks);
-      field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
-      field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
-
-      expect(field.positionsAt(1000 + 90_000)[0]!.lat).toBeCloseTo(49.3, 6);
-    });
-
-    it("snaps to the latest sample instead of gliding when motion is reduced", () => {
-      const field = new BusField(noTracks);
-      field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
-      field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
-
-      // Halfway through the interval the default glide is mid-tween, but a
-      // reduced-motion caller sees the bus already at its reported position,
-      // so nothing slides between polls.
-      const mid = 1000 + 45_000;
-      expect(field.positionsAt(mid, true)[0]!.lat).toBeCloseTo(49.29, 4);
-
-      const snapped = field.positionsAt(mid, false)[0]!;
-      expect(snapped.lat).toBeCloseTo(49.3, 6);
-    });
-
-    it("stops at the target rather than overshooting when a snapshot is late", () => {
-      const field = new BusField(noTracks);
-      field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
-      field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
-
-      const late = field.positionsAt(1000 + 300_000)[0]!;
-      expect(late.lat).toBeCloseTo(49.3, 6);
+      // No elapsed time makes a difference: there is nothing to tween, only
+      // the latest reported fix to report.
+      expect(field.positionsAt(1000)[0]!.lat).toBeCloseTo(49.3, 6);
+      expect(field.positionsAt(1000 + 45_000)[0]!.lat).toBeCloseTo(49.3, 6);
+      expect(field.positionsAt(1000 + 300_000)[0]!.lat).toBeCloseTo(49.3, 6);
     });
   });
 
@@ -164,34 +135,20 @@ describe("BusField", () => {
       travelling.ingest(snapshot([vehicle({ y: 49.3 })]), 90_000);
       expect(travelling.positionsAt(90_000)[0]!.moving).toBe(true);
     });
-
-    it("reads the same whether or not the caller is gliding", () => {
-      // Reduced motion changes how the position tweens, not what "moving"
-      // means: it must not flip the flag on its own.
-      const field = new BusField(noTracks);
-      field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
-      field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
-
-      for (const now of [1000 + 45_000, 1000 + 90_000, 1000 + 300_000]) {
-        expect(field.positionsAt(now, false)[0]!.moving).toBe(
-          field.positionsAt(now, true)[0]!.moving,
-        );
-      }
-    });
   });
 
   describe("with route geometry", () => {
-    it("follows the corner instead of cutting across it", () => {
+    it("snaps onto the shape rather than the raw straight-line fix", () => {
       const field = new BusField(alwaysTrack(cornerLine));
       field.ingest(snapshot([vehicle({ y: 49.28, x: -123.12 })]), 0);
       field.ingest(snapshot([vehicle({ y: 49.285, x: -123.113 })]), 1000);
 
-      // Halfway by distance along an L sits near the elbow, well off the
-      // straight line between the endpoints.
-      const mid = field.positionsAt(1000 + 45_000)[0]!;
+      // The reported fix already sits on the shape's elbow, well off the
+      // straight line between the route's two endpoints.
+      const bus = field.positionsAt(1000)[0]!;
       const diagonalLat = (49.28 + 49.285) / 2;
       const diagonalLon = (-123.12 + -123.113) / 2;
-      const offDiagonal = Math.hypot(mid.lat - diagonalLat, mid.lon - diagonalLon);
+      const offDiagonal = Math.hypot(bus.lat - diagonalLat, bus.lon - diagonalLon);
       expect(offDiagonal).toBeGreaterThan(0.001);
     });
 
@@ -200,7 +157,7 @@ describe("BusField", () => {
       field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
       field.ingest(snapshot([vehicle({ y: 49.3 })]), 1000);
 
-      expect(field.positionsAt(1000 + 45_000)[0]!.bearing).toBeCloseTo(0, 0);
+      expect(field.positionsAt(1000)[0]!.bearing).toBeCloseTo(0, 0);
     });
 
     it("faces backwards when the bus runs against the shape direction", () => {
@@ -208,33 +165,42 @@ describe("BusField", () => {
       field.ingest(snapshot([vehicle({ y: 49.3 })]), 0);
       field.ingest(snapshot([vehicle({ y: 49.28 })]), 1000);
 
-      expect(field.positionsAt(1000 + 45_000)[0]!.bearing).toBeCloseTo(180, 0);
+      expect(field.positionsAt(1000)[0]!.bearing).toBeCloseTo(180, 0);
     });
 
-    it("falls back to a straight line when projection implies an impossible jump", () => {
-      // Two points 20km apart cannot be one poll's hop; snapping to a
-      // doubled-back leg would teleport the bus.
-      const field = new BusField(alwaysTrack(northLine));
+    it("falls back to the raw fix when projection implies an impossible jump", () => {
+      // A track long enough that both fixes land within its bounds, so the
+      // ~20km gap between them survives projection instead of being clamped
+      // down to the track's own (shorter) length.
+      const longLine: LatLon[] = [
+        [49.28, -123.12],
+        [49.4, -123.12],
+        [49.6, -123.12],
+      ];
+      const field = new BusField(alwaysTrack(longLine));
       field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
       field.ingest(snapshot([vehicle({ y: 49.5, x: -123.12 })]), 1000);
 
-      const mid = field.positionsAt(1000 + 45_000)[0]!;
-      expect(mid.lat).toBeGreaterThan(49.28);
-      expect(mid.lat).toBeLessThan(49.5);
+      expect(field.positionsAt(1000)[0]!.lat).toBeCloseTo(49.5, 6);
     });
-  });
 
-  it("resumes from where a bus is drawn, not from the last sample", () => {
-    // A snapshot arriving mid-glide must not snap the bus backwards.
-    const field = new BusField(noTracks);
-    field.ingest(snapshot([vehicle({ y: 49.28 })]), 0);
-    field.ingest(snapshot([vehicle({ y: 49.3 })]), 0);
+    it("picks up a route's shape as soon as it becomes available, without waiting for the next poll", () => {
+      // The shape bundle for a route loads asynchronously and may still be
+      // in flight for a bus's first-ever fix. The track lookup is rechecked
+      // on every read, not just at ingest, so a geometry-derived heading
+      // appears the moment the route resolves, rather than the bus pointing
+      // nowhere in particular for a whole poll.
+      let track: Track | null = null;
+      const field = new BusField(() => track);
+      // Sitting right on the corner's elbow, with nothing to compare against
+      // yet: there is no fix history and no shape, so there is no heading.
+      field.ingest(snapshot([vehicle({ y: 49.285, x: -123.12 })]), 0);
+      expect(field.positionsAt(0)[0]!.bearing).toBe(0);
 
-    const atQuarter = field.positionsAt(22_500)[0]!.lat;
-    field.ingest(snapshot([vehicle({ y: 49.32 })]), 22_500);
-    const justAfter = field.positionsAt(22_600)[0]!.lat;
-
-    expect(justAfter).toBeGreaterThanOrEqual(atQuarter - 1e-6);
+      track = buildTrack(cornerLine);
+      const resolved = field.positionsAt(0)[0]!;
+      expect(resolved.bearing).not.toBeCloseTo(0, 0);
+    });
   });
 
   it("forgets a bus that stops reporting", () => {
@@ -283,8 +249,8 @@ describe("BusField", () => {
   it("still holds a bus missing from one snapshot but not yet stale", () => {
     const field = new BusField(noTracks);
     field.ingest(snapshot([vehicle({ i: "a" }), vehicle({ i: "b" })]), 0);
-    // "b" drops out of the feed for two minutes. It is still drawn, gliding on
-    // its last sample, so anything keyed off has() must keep showing it.
+    // "b" drops out of the feed for two minutes. It is still drawn at its
+    // last sample, so anything keyed off has() must keep showing it.
     field.ingest(snapshot([vehicle({ i: "a" })]), 120_000);
 
     expect(field.has("b")).toBe(true);
@@ -618,12 +584,8 @@ describe("findBunches", () => {
     ).toEqual([]);
   });
 
-  it("detects a bunch from the sample just ingested, not the last drawn frame", () => {
-    // The reason BusMap passes glide=false here. ingest() resets startedAt for
-    // every bus in the snapshot, so a gliding read at that instant returns where
-    // each bus was being DRAWN a moment earlier — a whole poll interval stale.
-    // These two close from 800m apart to 100m, which straddles BUNCH_METRES, so
-    // the gliding read misses the bunch entirely.
+  it("detects a bunch from the sample just ingested", () => {
+    // These two close from 800m apart to 100m, which straddles BUNCH_METRES.
     const field = new BusField(noTracks);
     field.ingest(
       snapshot([
@@ -641,8 +603,6 @@ describe("findBunches", () => {
     );
 
     expect(bunchesAt(field, 90_000)).toHaveLength(1);
-    // What the call would have found without the rule bunchesAt carries.
-    expect(findBunches(field.positionsAt(90_000))).toEqual([]);
   });
 
   it("groups three close buses as one bunch, not three pairs", () => {
