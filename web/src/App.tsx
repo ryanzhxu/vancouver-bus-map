@@ -39,6 +39,16 @@ const ATTRIBUTION =
   "TransLink. TransLink assumes no responsibility for the accuracy or currency of " +
   "the Data used in this product or service.";
 
+/**
+ * Road closures and construction contain information licensed under the
+ * Open Government Licence – British Columbia; that exact phrase is the
+ * licence's own default attribution when no other is specified. Live
+ * traffic speed is supplied by TomTom, shown only once a key is configured.
+ */
+const TRAFFIC_ATTRIBUTION =
+  "Road closures and construction contain information licensed under the Open " +
+  "Government Licence – British Columbia. Live traffic speed data © TomTom.";
+
 export function App() {
   const [feed, setFeed] = useState<FeedState>({ kind: "connecting" });
   const [showAbout, setShowAbout] = useState(false);
@@ -55,6 +65,12 @@ export function App() {
   const [tripFrom, setTripFrom] = useState<SelectedStop | null>(null);
   const [tripTo, setTripTo] = useState<SelectedStop | null>(null);
   const [tripPickMode, setTripPickMode] = useState<StopPickMode>(null);
+  const [showTrafficPanel, setShowTrafficPanel] = useState(false);
+  // DriveBC incidents are a handful of free, keyless requests — on by default.
+  const [showTrafficEvents, setShowTrafficEvents] = useState(true);
+  // TomTom's free tier has a daily ceiling shared across every visitor, so
+  // this only spends it for riders who actually open the layer.
+  const [showTrafficFlow, setShowTrafficFlow] = useState(false);
   const updateAvailable = useUpdateCheck();
 
   const highlight: Highlight = { routeId: route?.routeId ?? null, expressOnly };
@@ -87,6 +103,8 @@ export function App() {
           else if (tripPickMode === "to") setTripTo(next);
           setTripPickMode(null);
         }}
+        showTrafficEvents={showTrafficEvents}
+        showTrafficFlow={showTrafficFlow}
       />
 
       <RouteSearch
@@ -152,12 +170,41 @@ export function App() {
         </button>
         <button
           className="about-button"
+          onClick={() => setShowTrafficPanel((on) => !on)}
+          aria-label="Traffic layers"
+          aria-expanded={showTrafficPanel}
+        >
+          Traffic
+        </button>
+        <button
+          className="about-button"
           onClick={() => setShowAbout(true)}
           aria-label="About this map"
         >
           About
         </button>
       </div>
+
+      {showTrafficPanel && (
+        <div className="traffic-panel">
+          <label>
+            <input
+              type="checkbox"
+              checked={showTrafficEvents}
+              onChange={() => setShowTrafficEvents((on) => !on)}
+            />
+            Road closures &amp; construction (DriveBC)
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={showTrafficFlow}
+              onChange={() => setShowTrafficFlow((on) => !on)}
+            />
+            Live traffic speed (TomTom)
+          </label>
+        </div>
+      )}
 
       {showPulse && (
         <SystemPulse
@@ -502,10 +549,10 @@ function AboutSheet({ onClose }: { onClose: () => void }) {
         <div className="sheet-grip" aria-hidden="true" />
         <h2>Vancouver Bus Map</h2>
         <p>
-          Every bus in Metro Vancouver, updated every 30 seconds. Between updates each
-          bus is projected forward along its real route at its own measured speed, so
-          the map shows where a bus most likely is now. A marker fades as its position
-          ages, and sharpens the moment the feed confirms it again.
+          Every bus in Metro Vancouver, updated every 30 seconds, drawn exactly where it
+          was last reported and snapped onto its real route rather than hanging mid-air.
+          A marker fades as its position ages, and sharpens the moment the feed confirms
+          it again.
         </p>
         <p className="note">
           Buses only. TransLink publishes no live positions for SkyTrain, SeaBus, or the
@@ -521,6 +568,7 @@ function AboutSheet({ onClose }: { onClose: () => void }) {
           on each other, so a rider can see the bunch, not just that it exists.
         </p>
         <p className="fine">{ATTRIBUTION}</p>
+        <p className="fine">{TRAFFIC_ATTRIBUTION}</p>
         <p className="fine">
           Not affiliated with TransLink.{" "}
           <a href="https://github.com/ryanzhxu/vancouver-bus-map">Source on GitHub</a>
