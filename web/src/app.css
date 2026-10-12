@@ -104,6 +104,33 @@ body {
   z-index: 2;
 }
 
+/* MapLibre's own popup is hardcoded to a white box with no text colour set,
+   which read fine in light mode by accident but left dark mode inheriting
+   --ink (a light grey) onto that same white background — grey-on-white
+   instead of this app's actual dark surface. Themed like every other
+   surface instead of left to the library's light-only default. */
+.maplibregl-popup-content {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
+  border-bottom-color: var(--surface);
+}
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
+  border-top-color: var(--surface);
+}
+.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: var(--surface);
+}
+.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: var(--surface);
+}
+
 /* ---------- status bar ---------- */
 
 .statusbar {
@@ -227,6 +254,11 @@ body {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+}
+
+.about-button:hover {
+  background: var(--rule);
+  border-color: var(--accent);
 }
 
 .about-button:focus-visible,

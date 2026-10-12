@@ -48,6 +48,26 @@ const BUNCHED_COLOR = "#9b59b6";
  */
 const TRAFFIC_EVENTS_POLL_MS = 120_000;
 
+/**
+ * Below this fraction of free-flow speed, a road reads as "congested" rather
+ * than merely "a bit slower than usual". Flowing traffic is the map's default
+ * state and not worth drawing at all — a line per road the rider is not
+ * stuck on would bury the buses and routes under a wash of colour, which is
+ * the opposite of what this layer is for.
+ */
+const CONGESTION_THRESHOLD = 0.7;
+
+/**
+ * Same red/amber as the --stop/--warn tokens app.css themes for dark mode —
+ * CSS custom properties cannot be read from a MapLibre style expression, so
+ * these are kept in step by hand. Deliberately not the saturated red-to-green
+ * scale most traffic apps use: the buses and route lines are already the
+ * busiest colour on this map, and a bright green wash across every working
+ * road competed with both instead of sitting quietly underneath them.
+ */
+const CONGESTION_COLOR = { light: "#9e2b22", dark: "#ee928a" };
+const SLOW_COLOR = { light: "#8a5200", dark: "#e0a85e" };
+
 const darkQuery =
   typeof window !== "undefined" && window.matchMedia
     ? window.matchMedia("(prefers-color-scheme: dark)")
@@ -515,11 +535,15 @@ export function BusMap({
         minzoom: 0,
         maxzoom: 22,
       });
+      const dark = darkQuery?.matches ?? false;
       map.addLayer({
         id: "traffic-flow",
         type: "line",
         source: "traffic-flow",
         "source-layer": "Traffic flow",
+        // Only roads running under CONGESTION_THRESHOLD of free-flow speed —
+        // see its own comment for why flowing traffic is not drawn at all.
+        filter: ["<", ["get", "traffic_level"], CONGESTION_THRESHOLD],
         layout: {
           visibility: showTrafficFlowRef.current ? "visible" : "none",
           "line-cap": "round",
@@ -528,20 +552,17 @@ export function BusMap({
         paint: {
           "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.5, 15, 4],
           // TomTom's relative traffic_level: 0 is stopped relative to
-          // free-flow, 1 is free-flowing — the same red-to-green scale as
-          // every consumer traffic app.
+          // free-flow, CONGESTION_THRESHOLD is "starting to slow down".
           "line-color": [
             "interpolate",
             ["linear"],
             ["get", "traffic_level"],
             0,
-            "#c0392b",
-            0.5,
-            "#f2c744",
-            1,
-            "#2ecc71",
+            dark ? CONGESTION_COLOR.dark : CONGESTION_COLOR.light,
+            CONGESTION_THRESHOLD,
+            dark ? SLOW_COLOR.dark : SLOW_COLOR.light,
           ],
-          "line-opacity": 0.75,
+          "line-opacity": 0.65,
         },
       });
 
