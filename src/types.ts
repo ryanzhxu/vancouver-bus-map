@@ -14,6 +14,14 @@ export interface Env {
   TRANSLINK_API_KEYS?: string;
   /** The original single-key secret, kept so a rollback still has a key. */
   TRANSLINK_API_KEY?: string;
+  /**
+   * Free-tier key for TomTom's traffic flow tiles. Set with:
+   * wrangler secret put TOMTOM_API_KEY
+   *
+   * Absent until someone signs up for one — the traffic-flow route 503s
+   * without it rather than failing the whole deploy.
+   */
+  TOMTOM_API_KEY?: string;
 }
 
 /**

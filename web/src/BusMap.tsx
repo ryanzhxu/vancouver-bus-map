@@ -20,6 +20,7 @@ import { distance } from "./geo.js";
 import { DEFAULT_ROUTE_COLOR, GtfsData } from "./gtfs.js";
 import { distinctRouteColors, drawMarker, iconName } from "./icons.js";
 import { isExpress, shouldDim, type Highlight } from "./routes.js";
+import { trafficEventsToFeatures, type TrafficEvent } from "./traffic.js";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 /** Metro Vancouver, framed to hold Richmond through North Van. */
@@ -39,6 +40,13 @@ const LATE_COLOR = "#e8590c";
  * purples for the same thing.
  */
 const BUNCHED_COLOR = "#9b59b6";
+
+/**
+ * DriveBC's own guidance is to poll no more than once a minute; the Worker
+ * already caches for 90s on top of that, so refetching more often than this
+ * would only ever return the Worker's own cached response anyway.
+ */
+const TRAFFIC_EVENTS_POLL_MS = 120_000;
 
 const darkQuery =
   typeof window !== "undefined" && window.matchMedia
@@ -93,6 +101,8 @@ export function BusMap({
   onStopFollowing,
   stopPickMode,
   onPickStop,
+  showTrafficEvents,
+  showTrafficFlow,
 }: {
   onState: (state: FeedState) => void;
   onSelect: (bus: SelectedBus | null) => void;
@@ -106,6 +116,10 @@ export function BusMap({
   /** While set, a stop tap resolves to onPickStop instead of opening StopCard. */
   stopPickMode: "from" | "to" | null;
   onPickStop: (stop: SelectedStop) => void;
+  /** DriveBC road events — closures, construction, incidents. */
+  showTrafficEvents: boolean;
+  /** TomTom live flow tiles; off by default since the free tier has a daily ceiling. */
+  showTrafficFlow: boolean;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
@@ -137,6 +151,10 @@ export function BusMap({
   stopPickModeRef.current = stopPickMode;
   const onPickStopRef = useRef(onPickStop);
   onPickStopRef.current = onPickStop;
+  const showTrafficEventsRef = useRef(showTrafficEvents);
+  showTrafficEventsRef.current = showTrafficEvents;
+  const showTrafficFlowRef = useRef(showTrafficFlow);
+  showTrafficFlowRef.current = showTrafficFlow;
   /** Latest wire record per bus, for the detail sheet. */
   const wireById = useRef(
     new Map<string, { r: string; d?: string; p: string; s: number; a?: number; l?: number }>(),
@@ -246,6 +264,7 @@ export function BusMap({
     let frame = 0;
     let socket: WebSocket | null = null;
     let pollTimer: number | undefined;
+    let trafficEventsTimer: number | undefined;
     let reconnectTimer: number | undefined;
     let reconnectDelay = 2000;
     // The bunch-lines feature count from the last setData call, so animate()
@@ -260,6 +279,9 @@ export function BusMap({
     map.on("style.load", () => {
       if (stopped || layersAdded) return;
       layersAdded = true;
+
+      // Added first so every bus/stop layer below draws on top of it.
+      addTrafficLayers();
 
       map.addSource("buses", {
         type: "geojson",
@@ -477,6 +499,110 @@ export function BusMap({
     }
 
     /**
+     * DriveBC's road events and TomTom's live flow tiles. Added before every
+     * bus/stop layer so both draw underneath the fleet, as background
+     * context rather than competing with it.
+     *
+     * Visibility starts from the ref, not the prop, because this runs again
+     * on every theme swap (setStyle discards it along with everything else)
+     * — reading the prop directly would freeze on whatever it was when this
+     * closure was created, not the rider's latest toggle.
+     */
+    function addTrafficLayers(): void {
+      map.addSource("traffic-flow", {
+        type: "vector",
+        tiles: [`${window.location.origin}/api/traffic/flow-tile/{z}/{x}/{y}.pbf`],
+        minzoom: 0,
+        maxzoom: 22,
+      });
+      map.addLayer({
+        id: "traffic-flow",
+        type: "line",
+        source: "traffic-flow",
+        "source-layer": "Traffic flow",
+        layout: {
+          visibility: showTrafficFlowRef.current ? "visible" : "none",
+          "line-cap": "round",
+          "line-join": "round",
+        },
+        paint: {
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.5, 15, 4],
+          // TomTom's relative traffic_level: 0 is stopped relative to
+          // free-flow, 1 is free-flowing — the same red-to-green scale as
+          // every consumer traffic app.
+          "line-color": [
+            "interpolate",
+            ["linear"],
+            ["get", "traffic_level"],
+            0,
+            "#c0392b",
+            0.5,
+            "#f2c744",
+            1,
+            "#2ecc71",
+          ],
+          "line-opacity": 0.75,
+        },
+      });
+
+      map.addSource("traffic-events", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: "traffic-event-lines",
+        type: "line",
+        source: "traffic-events",
+        filter: ["==", ["geometry-type"], "LineString"],
+        layout: {
+          visibility: showTrafficEventsRef.current ? "visible" : "none",
+          "line-cap": "round",
+        },
+        paint: {
+          "line-color": ["get", "color"],
+          "line-width": 4,
+          "line-opacity": 0.8,
+          "line-dasharray": [2, 1],
+        },
+      });
+      map.addLayer({
+        id: "traffic-event-points",
+        type: "circle",
+        source: "traffic-events",
+        filter: ["==", ["geometry-type"], "Point"],
+        layout: { visibility: showTrafficEventsRef.current ? "visible" : "none" },
+        paint: {
+          "circle-radius": 6,
+          "circle-color": ["get", "color"],
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": "#ffffff",
+        },
+      });
+
+      map.on("click", "traffic-event-points", (e) => showTrafficPopup(e));
+      map.on("click", "traffic-event-lines", (e) => showTrafficPopup(e));
+      for (const layer of ["traffic-event-points", "traffic-event-lines"]) {
+        map.on("mouseenter", layer, () => {
+          map.getCanvas().style.cursor = "pointer";
+        });
+        map.on("mouseleave", layer, () => {
+          map.getCanvas().style.cursor = "";
+        });
+      }
+    }
+
+    function showTrafficPopup(e: maplibregl.MapLayerMouseEvent): void {
+      const feature = e.features?.[0];
+      if (!feature) return;
+      const headline = feature.properties?.["headline"] as string | undefined;
+      const severity = feature.properties?.["severity"] as string | undefined;
+      new maplibregl.Popup({ closeButton: false })
+        .setLngLat(e.lngLat)
+        .setHTML(`<strong>${headline ?? "Road event"}</strong><br>${severity ?? ""}`)
+        .addTo(map);
+    }
+
+    /**
      * Register one bus-icon image per shape per colour, so animate() can name
      * an icon per bus with no per-frame work. The set is small — TransLink
      * colours only 12 routes.
@@ -614,6 +740,28 @@ export function BusMap({
       void gtfs.ensureStops().then(() => {
         if (!stopped) addStopsLayer(gtfs);
       });
+
+      // Independent of the bus poll/socket entirely — road events change on
+      // their own schedule, not TransLink's, and this never touches its budget.
+      void pollTrafficEvents();
+      trafficEventsTimer = window.setInterval(() => void pollTrafficEvents(), TRAFFIC_EVENTS_POLL_MS);
+    }
+
+    async function pollTrafficEvents(): Promise<void> {
+      const source = map.getSource("traffic-events") as maplibregl.GeoJSONSource | undefined;
+      if (!source) return;
+      try {
+        const response = await fetch("/api/traffic/events");
+        if (!response.ok) return;
+        const body = (await response.json()) as { events: TrafficEvent[] };
+        source.setData({
+          type: "FeatureCollection",
+          features: trafficEventsToFeatures(body.events),
+        });
+      } catch {
+        // DriveBC being unreachable just means the overlay goes stale, same
+        // as the Worker's own fallback — never worth tearing down the map for.
+      }
     }
 
     function connect(): void {
@@ -870,6 +1018,7 @@ export function BusMap({
       resizeObserver.disconnect();
       cancelAnimationFrame(frame);
       if (pollTimer) clearInterval(pollTimer);
+      if (trafficEventsTimer) clearInterval(trafficEventsTimer);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       socket?.close();
       map.remove();
@@ -911,6 +1060,20 @@ export function BusMap({
       cancelled = true;
     };
   }, [highlight.routeId]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.getLayer("traffic-event-points")) return;
+    const visibility = showTrafficEvents ? "visible" : "none";
+    map.setLayoutProperty("traffic-event-points", "visibility", visibility);
+    map.setLayoutProperty("traffic-event-lines", "visibility", visibility);
+  }, [showTrafficEvents, ready]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.getLayer("traffic-flow")) return;
+    map.setLayoutProperty("traffic-flow", "visibility", showTrafficFlow ? "visible" : "none");
+  }, [showTrafficFlow, ready]);
 
   return (
     <div className="map-shell">
